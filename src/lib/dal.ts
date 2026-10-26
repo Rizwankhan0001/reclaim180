@@ -46,9 +46,9 @@ export function toDayLog(row: typeof dayLog.$inferSelect): DayLog {
   };
 }
 
-/** Everything the dashboard needs, in one round trip. */
+/** Everything the dashboard needs, fetched in parallel. */
 export async function loadTracker(userId: string): Promise<TrackerData | null> {
-  const [profiles, habits, logs, relapses] = await db.batch([
+  const [profiles, habits, logs, relapses] = await Promise.all([
     db.select().from(profile).where(eq(profile.userId, userId)).limit(1),
     db
       .select()

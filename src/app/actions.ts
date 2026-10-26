@@ -1,7 +1,6 @@
 "use server";
 
 import { and, asc, eq, isNull } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { z } from "zod";
 import { db } from "@/db";
 import { dayLog, habit, profile, relapse } from "@/db/schema";
@@ -21,8 +20,6 @@ export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error:
 /** An error whose message is safe to show the user. */
 class UserError extends Error {}
 
-type Batch = [BatchItem<"pg">, ...BatchItem<"pg">[]];
-
 async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     return { ok: true, data: await fn() };
@@ -37,6 +34,7 @@ async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
 
 function habitRows(userId: string, drafts: z.infer<typeof createProfileSchema>["habits"]) {
   return drafts.map((h, i) => ({
+    id: crypto.randomUUID(),
     userId,
     name: h.name,
     kind: h.kind,
@@ -58,18 +56,17 @@ export async function createProfile(input: unknown): Promise<ActionResult> {
     const data = createProfileSchema.parse(input);
     assertNotFuture(data.startAt, "The start");
     if (await hasProfile(userId)) throw new UserError("Your tracker is already set up.");
-    const queries: Batch = [
-      db.insert(profile).values({
+    const rows = habitRows(userId, data.habits);
+    await db.transaction(async (tx) => {
+      await tx.insert(profile).values({
         userId,
         displayName: data.displayName,
         startAt: new Date(data.startAt),
         goalDays: data.goalDays,
         reasons: data.reasons,
-      }),
-    ];
-    const rows = habitRows(userId, data.habits);
-    if (rows.length) queries.push(db.insert(habit).values(rows));
-    await db.batch(queries);
+      });
+      if (rows.length) await tx.insert(habit).values(rows);
+    });
     return null;
   });
 }
@@ -89,7 +86,7 @@ export async function saveDay(input: unknown): Promise<ActionResult> {
     await db
       .insert(dayLog)
       .values({ userId, date: d.date, ...values })
-      .onConflictDoUpdate({ target: [dayLog.userId, dayLog.date], set: { ...values, updatedAt: new Date() } });
+      .onDuplicateKeyUpdate({ set: { ...values, updatedAt: new Date() } });
     return null;
   });
 }
@@ -101,12 +98,12 @@ export async function logRelapse(input: unknown): Promise<ActionResult<Relapse>>
     assertNotFuture(r.at, "A reset");
     const [p] = await db.select({ startAt: profile.startAt }).from(profile).where(eq(profile.userId, userId)).limit(1);
     if (!p) throw new UserError("Set up your tracker first.");
-    if (new Date(r.at) < p.startAt) throw new UserError("That's before your program started.");
-    const [row] = await db
-      .insert(relapse)
-      .values({ userId, at: new Date(r.at), trigger: r.trigger, note: r.note?.trim() || null })
-      .returning();
-    return { id: row.id, at: row.at.toISOString(), trigger: row.trigger, note: row.note };
+    const at = new Date(r.at);
+    if (at < p.startAt) throw new UserError("That's before your program started.");
+    // MySQL has no INSERT ... RETURNING, so the id is created here.
+    const row = { id: crypto.randomUUID(), userId, at, trigger: r.trigger, note: r.note?.trim() || null };
+    await db.insert(relapse).values(row);
+    return { id: row.id, at: at.toISOString(), trigger: row.trigger, note: row.note };
   });
 }
 
@@ -135,15 +132,8 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
       throw new UserError("The start must be before your first logged reset.");
     }
 
-    const existing = await db
-      .select({ id: habit.id })
-      .from(habit)
-      .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)));
-    const existingIds = new Set(existing.map((e) => e.id));
-    const keptIds = new Set<string>();
-
-    const queries: Batch = [
-      db
+    await db.transaction(async (tx) => {
+      await tx
         .update(profile)
         .set({
           displayName: data.displayName,
@@ -151,37 +141,39 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
           goalDays: data.goalDays,
           reasons: data.reasons,
         })
-        .where(eq(profile.userId, userId)),
-    ];
+        .where(eq(profile.userId, userId));
 
-    const rows = habitRows(userId, data.habits);
-    const inserts: typeof rows = [];
-    data.habits.forEach((h, i) => {
-      const row = rows[i];
-      if (h.id && existingIds.has(h.id)) {
-        keptIds.add(h.id);
-        queries.push(
-          db
+      const existing = await tx
+        .select({ id: habit.id })
+        .from(habit)
+        .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)));
+      const existingIds = new Set(existing.map((e) => e.id));
+      const keptIds = new Set<string>();
+
+      const rows = habitRows(userId, data.habits);
+      const inserts: typeof rows = [];
+      for (const [i, h] of data.habits.entries()) {
+        const row = rows[i];
+        if (h.id && existingIds.has(h.id)) {
+          keptIds.add(h.id);
+          await tx
             .update(habit)
             .set({ name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position })
-            .where(and(eq(habit.id, h.id), eq(habit.userId, userId))),
-        );
-      } else {
-        inserts.push(row);
+            .where(and(eq(habit.id, h.id), eq(habit.userId, userId)));
+        } else {
+          inserts.push(row);
+        }
       }
-    });
-    if (inserts.length) queries.push(db.insert(habit).values(inserts));
-    for (const id of existingIds) {
-      if (!keptIds.has(id)) {
-        queries.push(
-          db
+      if (inserts.length) await tx.insert(habit).values(inserts);
+      for (const hid of existingIds) {
+        if (!keptIds.has(hid)) {
+          await tx
             .update(habit)
             .set({ archivedAt: new Date() })
-            .where(and(eq(habit.id, id), eq(habit.userId, userId))),
-        );
+            .where(and(eq(habit.id, hid), eq(habit.userId, userId)));
+        }
       }
-    }
-    await db.batch(queries);
+    });
 
     const active = await db
       .select()
@@ -195,12 +187,12 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
 export async function eraseAll(): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
-    await db.batch([
-      db.delete(dayLog).where(eq(dayLog.userId, userId)),
-      db.delete(relapse).where(eq(relapse.userId, userId)),
-      db.delete(habit).where(eq(habit.userId, userId)),
-      db.delete(profile).where(eq(profile.userId, userId)),
-    ]);
+    await db.transaction(async (tx) => {
+      await tx.delete(dayLog).where(eq(dayLog.userId, userId));
+      await tx.delete(relapse).where(eq(relapse.userId, userId));
+      await tx.delete(habit).where(eq(habit.userId, userId));
+      await tx.delete(profile).where(eq(profile.userId, userId));
+    });
     return null;
   });
 }
@@ -311,17 +303,19 @@ export async function importBackup(json: string): Promise<ActionResult> {
       ),
     }));
 
-    const queries: Batch = [
-      db.delete(dayLog).where(eq(dayLog.userId, userId)),
-      db.delete(relapse).where(eq(relapse.userId, userId)),
-      db.delete(habit).where(eq(habit.userId, userId)),
-      db.delete(profile).where(eq(profile.userId, userId)),
-      db.insert(profile).values({ userId, ...n.profile }),
-    ];
-    if (habitValues.length) queries.push(db.insert(habit).values(habitValues));
-    for (let i = 0; i < logValues.length; i += 300) queries.push(db.insert(dayLog).values(logValues.slice(i, i + 300)));
-    if (n.relapses.length) queries.push(db.insert(relapse).values(n.relapses.map((r) => ({ userId, ...r }))));
-    await db.batch(queries);
+    // All or nothing: a failed import leaves the old data untouched.
+    await db.transaction(async (tx) => {
+      await tx.delete(dayLog).where(eq(dayLog.userId, userId));
+      await tx.delete(relapse).where(eq(relapse.userId, userId));
+      await tx.delete(habit).where(eq(habit.userId, userId));
+      await tx.delete(profile).where(eq(profile.userId, userId));
+      await tx.insert(profile).values({ userId, ...n.profile });
+      if (habitValues.length) await tx.insert(habit).values(habitValues);
+      for (let i = 0; i < logValues.length; i += 300) await tx.insert(dayLog).values(logValues.slice(i, i + 300));
+      if (n.relapses.length) {
+        await tx.insert(relapse).values(n.relapses.map((r) => ({ id: crypto.randomUUID(), userId, ...r })));
+      }
+    });
     return null;
   });
 }

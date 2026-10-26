@@ -20,7 +20,7 @@ export const auth = betterAuth({
     vercelUrl(process.env.VERCEL_URL),
     vercelUrl(process.env.VERCEL_BRANCH_URL),
   ].filter((o): o is string => Boolean(o)),
-  database: drizzleAdapter(db, { provider: "pg", schema }),
+  database: drizzleAdapter(db, { provider: "mysql", schema }),
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
