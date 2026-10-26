@@ -1,69 +1,128 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Suspense } from "react";
+import { SiteHeader } from "@/components/site-header";
+import { ClockIcon, DropIcon, GridIcon, ShieldIcon, CheckIcon } from "@/components/icons";
+import { getSession } from "@/lib/dal";
+
+const FEATURES = [
+  { icon: ClockIcon, title: "Live streak clock", body: "Days, hours and minutes, with milestones from day 1 to day 180." },
+  { icon: CheckIcon, title: "Daily habit check-in", body: "Workout, sleep, cold showers, reading. Pick yours or add your own." },
+  { icon: GridIcon, title: "Six-month calendar", body: "Every day on one map, so patterns jump out." },
+  { icon: DropIcon, title: "Urge SOS", body: "A guided breathing timer and your own reasons, one tap away." },
+  { icon: ShieldIcon, title: "Private by default", body: "Your entries are tied to your account. No one else can see them." },
+];
+
+async function HeaderActions() {
+  const session = await getSession();
+  if (session) {
+    return (
+      <Link href="/dashboard" className="btn btn-primary !py-2">
+        Open my tracker
+      </Link>
+    );
+  }
+  return <SignedOutActions />;
+}
+
+function SignedOutActions() {
+  return (
+    <>
+      <Link href="/sign-in" className="btn btn-quiet !py-2">
+        Sign in
+      </Link>
+      <Link href="/sign-up" className="btn btn-primary !py-2">
+        Get started
+      </Link>
+    </>
+  );
+}
+
+function HeroRing() {
+  const r = 108;
+  const c = 2 * Math.PI * r;
+  const frac = 47 / 182;
+  return (
+    <div className="card relative mx-auto grid w-full max-w-[400px] justify-items-center gap-4 !p-8">
+      <span className="eyebrow self-start">Example</span>
+      <div className="relative h-[240px] w-[240px]">
+        <svg viewBox="0 0 260 260" className="h-full w-full" aria-hidden="true">
+          <circle cx="130" cy="130" r={r} fill="none" stroke="var(--heat-0)" strokeWidth="14" />
+          <circle
+            cx="130"
+            cy="130"
+            r={r}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="14"
+            strokeLinecap="round"
+            strokeDasharray={`${c * frac} ${c}`}
+            transform="rotate(-90 130 130)"
+          />
+        </svg>
+        <div className="absolute inset-0 grid place-content-center text-center">
+          <div className="font-display text-[72px] leading-[0.9] font-extrabold tracking-[-0.04em]">47</div>
+          <div className="mt-1.5 text-[13px] font-medium text-muted">days clean</div>
+          <div className="num text-xs text-faint">of 182</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <span className="chip !border-transparent !bg-accent-soft">Rewiring phase</span>
+        <span className="chip">
+          Best: <span className="num">47d</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <>
+      <SiteHeader>
+        <Suspense fallback={<SignedOutActions />}>
+          <HeaderActions />
+        </Suspense>
+      </SiteHeader>
+      <main className="flex-1">
+        <section className="wrap grid items-center gap-10 py-12 md:grid-cols-[1.1fr_1fr] md:py-20">
+          <div>
+            <div className="eyebrow">A 6-month reset, one day at a time</div>
+            <h1 className="mt-3 text-[clamp(40px,6vw,72px)] leading-[0.96] font-extrabold tracking-[-0.035em]">
+              Take back <span className="text-accent">180 days.</span>
+              <br />
+              Track every one.
+            </h1>
+            <p className="mt-5 max-w-[46ch] text-[17px] text-muted">
+              A private tracker for your NoFap streak and the daily habits that hold it up. Built for the long run,
+              honest about the hard days.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link href="/sign-up" className="btn btn-primary !px-5 !py-3 text-base">
+                Start my 180 days
+              </Link>
+              <Link href="/sign-in" className="btn !px-5 !py-3 text-base">
+                I already have an account
+              </Link>
+            </div>
+          </div>
+          <HeroRing />
+        </section>
+
+        <section className="wrap pb-20">
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {FEATURES.map(({ icon: Icon, title, body }) => (
+              <li key={title} className="card grid content-start gap-2 !p-5">
+                <Icon className="h-6 w-6 text-accent" />
+                <h2 className="text-[17px] font-bold">{title}</h2>
+                <p className="text-sm text-muted">{body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
       </main>
-    </div>
+      <footer className="border-t border-line py-6 text-center text-[13px] text-muted">
+        Reclaim 180 · Your data stays yours. Export or erase it any time.
+      </footer>
+    </>
   );
 }
