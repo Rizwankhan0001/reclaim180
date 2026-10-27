@@ -1,5 +1,5 @@
 import { PHASES } from "./constants";
-import { DAY_MS, addDays, daysBetween, keyOf, startOfDay } from "./dates";
+import { DAY_MS, addDays, daysBetween, keyOf, parseKey, startOfDay } from "./dates";
 import type { DayLog, Habit, Profile, Relapse } from "./types";
 
 export type StreakInfo = {
@@ -57,10 +57,21 @@ export function isLogged(log: DayLog | undefined | null): boolean {
   );
 }
 
-/** Average habit completion for a day, or null when nothing was logged. */
-export function dayScore(habits: Habit[], log: DayLog | undefined | null): number | null {
-  if (!habits.length || !isLogged(log)) return null;
-  return habits.reduce((a, h) => a + habitValue(h, log), 0) / habits.length;
+/** Whether a habit applies on a given day (habits can be limited to certain weekdays). */
+export function isScheduled(h: Habit, dateKey: string): boolean {
+  return !h.days || h.days.length === 0 || h.days.includes(parseKey(dateKey).getDay());
+}
+
+export function scheduledFor(habits: Habit[], dateKey: string): Habit[] {
+  return habits.filter((h) => isScheduled(h, dateKey));
+}
+
+/** Average completion of the habits scheduled that day, or null when nothing was logged. */
+export function dayScore(habits: Habit[], log: DayLog | undefined | null, dateKey?: string): number | null {
+  if (!isLogged(log)) return null;
+  const due = scheduledFor(habits, dateKey ?? log!.date);
+  if (!due.length) return null;
+  return due.reduce((a, h) => a + habitValue(h, log), 0) / due.length;
 }
 
 export function heatLevel(score: number | null): 0 | 1 | 2 | 3 | 4 | null {

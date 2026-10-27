@@ -15,7 +15,7 @@ export async function GET() {
     version: 2,
     exportedAt: new Date().toISOString(),
     profile: data.profile,
-    habits: data.habits.map(({ id, name, kind, target, unit }) => ({ id, name, kind, target, unit })),
+    habits: data.habits.map(({ id, name, kind, target, unit, icon, days }) => ({ id, name, kind, target, unit, icon, days })),
     logs: Object.values(data.logs),
     relapses: data.relapses.map(({ at, trigger, note }) => ({ at, trigger, note })),
   };

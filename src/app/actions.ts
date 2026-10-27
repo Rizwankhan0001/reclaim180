@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { dayLog, habit, profile, relapse } from "@/db/schema";
 import { hasProfile, requireUserId, toHabit } from "@/lib/dal";
+import { normalizePreferences } from "@/lib/tracker/preferences";
 import type { Habit, Relapse } from "@/lib/tracker/types";
 import {
   appBackupSchema,
@@ -32,6 +33,13 @@ async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   }
 }
 
+/** A schedule covering every day (or none) is stored as null, meaning "every day". */
+function normalizeDays(days: number[] | null | undefined): number[] | null {
+  if (!days) return null;
+  const uniq = [...new Set(days)].sort((a, b) => a - b);
+  return uniq.length === 0 || uniq.length === 7 ? null : uniq;
+}
+
 function habitRows(userId: string, drafts: z.infer<typeof createProfileSchema>["habits"]) {
   return drafts.map((h, i) => ({
     id: crypto.randomUUID(),
@@ -41,6 +49,8 @@ function habitRows(userId: string, drafts: z.infer<typeof createProfileSchema>["
     target: h.kind === "count" ? h.target : 1,
     unit: h.kind === "count" ? h.unit || "per day" : null,
     position: i,
+    icon: h.icon || null,
+    days: normalizeDays(h.days),
   }));
 }
 
@@ -64,6 +74,7 @@ export async function createProfile(input: unknown): Promise<ActionResult> {
         startAt: new Date(data.startAt),
         goalDays: data.goalDays,
         reasons: data.reasons,
+        preferences: normalizePreferences(undefined),
       });
       if (rows.length) await tx.insert(habit).values(rows);
     });
@@ -140,6 +151,7 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
           startAt: new Date(data.startAt),
           goalDays: data.goalDays,
           reasons: data.reasons,
+          preferences: normalizePreferences(data.preferences),
         })
         .where(eq(profile.userId, userId));
 
@@ -158,7 +170,7 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
           keptIds.add(h.id);
           await tx
             .update(habit)
-            .set({ name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position })
+            .set({ name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position, icon: row.icon, days: row.days })
             .where(and(eq(habit.id, h.id), eq(habit.userId, userId)));
         } else {
           inserts.push(row);
@@ -219,8 +231,16 @@ export async function importBackup(json: string): Promise<ActionResult> {
     const version = (raw as { version?: unknown })?.version;
 
     type Norm = {
-      profile: { displayName: string; startAt: Date; goalDays: number; reasons: string[] };
-      habits: { oldId: string; name: string; kind: "check" | "count"; target: number; unit: string | null }[];
+      profile: { displayName: string; startAt: Date; goalDays: number; reasons: string[]; preferences: Record<string, unknown> };
+      habits: {
+        oldId: string;
+        name: string;
+        kind: "check" | "count";
+        target: number;
+        unit: string | null;
+        icon: string | null;
+        days: number[] | null;
+      }[];
       logs: {
         date: string;
         mood: number | null;
@@ -243,6 +263,7 @@ export async function importBackup(json: string): Promise<ActionResult> {
           startAt: new Date(b.profile.startAt),
           goalDays: Math.max(7, Math.min(1000, Math.round(b.profile.goal ?? 182))),
           reasons: (b.profile.reasons ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 12),
+          preferences: normalizePreferences(undefined),
         },
         habits: b.profile.habits.slice(0, 20).map((h) => ({
           oldId: h.id,
@@ -250,6 +271,8 @@ export async function importBackup(json: string): Promise<ActionResult> {
           kind: h.type,
           target: h.type === "count" ? Math.max(1, Math.min(99, Math.round(h.target ?? 1))) : 1,
           unit: h.type === "count" ? (h.unit ?? "per day").slice(0, 20) : null,
+          icon: null,
+          days: null,
         })),
         logs: Object.values(b.months).flatMap((m) =>
           Object.entries(m.days)
@@ -273,8 +296,22 @@ export async function importBackup(json: string): Promise<ActionResult> {
     } else if (version === 2) {
       const b = appBackupSchema.parse(raw);
       n = {
-        profile: { ...b.profile, startAt: new Date(b.profile.startAt) },
-        habits: b.habits.map((h) => ({ oldId: h.id, name: h.name, kind: h.kind, target: h.target, unit: h.unit })),
+        profile: {
+          displayName: b.profile.displayName,
+          startAt: new Date(b.profile.startAt),
+          goalDays: b.profile.goalDays,
+          reasons: b.profile.reasons,
+          preferences: normalizePreferences(b.profile.preferences),
+        },
+        habits: b.habits.map((h) => ({
+          oldId: h.id,
+          name: h.name,
+          kind: h.kind,
+          target: h.target,
+          unit: h.unit,
+          icon: h.icon ?? null,
+          days: normalizeDays(h.days),
+        })),
         logs: b.logs,
         relapses: b.relapses.map((r) => ({ at: new Date(r.at), trigger: r.trigger, note: r.note })),
       };
@@ -292,6 +329,8 @@ export async function importBackup(json: string): Promise<ActionResult> {
       target: h.target,
       unit: h.unit,
       position: i,
+      icon: h.icon,
+      days: h.days,
     }));
     const logValues = n.logs.map((l) => ({
       userId,

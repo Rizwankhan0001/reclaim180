@@ -10,7 +10,7 @@ async function DashboardLoader() {
   const user = await requireUser();
   const data = await loadTracker(user.id);
   if (!data) redirect("/onboarding");
-  return <Dashboard initial={data} email={user.email} />;
+  return <Dashboard initial={data} />;
 }
 
 export default function DashboardPage() {

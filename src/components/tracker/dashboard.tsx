@@ -1,23 +1,25 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveDay } from "@/app/actions";
 import { SiteHeader } from "@/components/site-header";
-import { SettingsIcon } from "@/components/icons";
+import { ChartIcon, CircleCheckIcon, DropIcon, HomeIcon, ResetIcon, SettingsIcon, XIcon } from "@/components/icons";
+import { ThemeApplier } from "@/components/theme-applier";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { useIsClient, useNow } from "@/lib/hooks";
 import { keyOf, startOfDay } from "@/lib/tracker/dates";
-import { emptyLog, relapseDayMap, streakInfo } from "@/lib/tracker/math";
+import { emptyLog, isLogged, relapseDayMap, streakInfo } from "@/lib/tracker/math";
 import type { DayLog, Habit, Profile, Relapse, TrackerData } from "@/lib/tracker/types";
 import { Hero, Milestones } from "./hero";
 import { TodayCard } from "./today-card";
 import { HabitRatesCard, HeatmapCard, JournalCard, StatsCard, TrendCard, TriggersCard } from "./insights";
-import { ResetDialog, SettingsDialog, SosDialog } from "./dialogs";
+import { ResetDialog, SosDialog } from "./dialogs";
 
 type Sync = "saved" | "saving" | "error";
-type DialogName = "sos" | "reset" | "settings" | null;
+type DialogName = "sos" | "reset" | null;
 
-export function Dashboard(props: { initial: TrackerData; email: string }) {
+export function Dashboard(props: { initial: TrackerData }) {
   return (
     <ToastProvider>
       <DashboardInner {...props} />
@@ -25,13 +27,13 @@ export function Dashboard(props: { initial: TrackerData; email: string }) {
   );
 }
 
-function DashboardInner({ initial, email }: { initial: TrackerData; email: string }) {
+function DashboardInner({ initial }: { initial: TrackerData }) {
   const toast = useToast();
   const isClient = useIsClient();
   const now = useNow(30_000);
 
-  const [profile, setProfile] = useState<Profile>(initial.profile);
-  const [habits, setHabits] = useState<Habit[]>(initial.habits);
+  const [profile] = useState<Profile>(initial.profile);
+  const [habits] = useState<Habit[]>(initial.habits);
   const [logs, setLogs] = useState<Record<string, DayLog>>(initial.logs);
   const [relapses, setRelapses] = useState<Relapse[]>(initial.relapses);
   const [selected, setSelected] = useState<string | null>(null); // null = today
@@ -101,6 +103,13 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
   const sel = selected && selected <= todayK ? selected : todayK;
   const streak = streakInfo(profile, relapses, now);
   const resetDays = relapseDayMap(relapses);
+  const loggedDays = Object.values(logs).filter(isLogged).length;
+  const prefs = profile.preferences;
+  const lower = [
+    prefs.sections.trend && <TrendCard key="trend" logs={logs} today={today} />,
+    prefs.sections.strength && <HabitRatesCard key="strength" profile={profile} habits={habits} logs={logs} today={today} />,
+    prefs.sections.triggers && <TriggersCard key="triggers" relapses={relapses} />,
+  ].filter(Boolean);
 
   function pickDay(k: string) {
     setSelected(k === todayK ? null : k);
@@ -121,22 +130,25 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
           ))}
         </nav>
         <SyncPill sync={sync} />
-        <button type="button" className="icon-btn" aria-label="Settings" onClick={() => setDialog("settings")}>
+        <Link href="/settings" className="icon-btn" aria-label="Settings">
           <SettingsIcon />
-        </button>
+        </Link>
       </SiteHeader>
 
-      <section className="wrap pt-7 pb-2">
-        <Hero
-          profile={profile}
-          streak={streak}
-          onSos={() => setDialog("sos")}
-          onReset={() => setDialog("reset")}
-        />
-        <Milestones goal={profile.goalDays} streak={streak} />
+      <section className="night">
+        <div className="wrap grid gap-7 pt-9 pb-10 md:pt-12">
+          <Hero
+            profile={profile}
+            streak={streak}
+            onSos={() => setDialog("sos")}
+            onReset={() => setDialog("reset")}
+          />
+          {prefs.sections.milestones && <Milestones goal={profile.goalDays} streak={streak} rewards={prefs.rewards} />}
+        </div>
       </section>
 
-      <main className="wrap grid gap-5 pt-4 pb-16">
+      <main className="wrap grid gap-5 pt-6 pb-28 md:pb-16">
+        {loggedDays < 3 && <WelcomeGuide />}
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           <TodayCard
             key={sel}
@@ -149,8 +161,9 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
             onChange={(fn) => updateDay(sel, fn)}
             onPick={pickDay}
           />
-          <StatsCard profile={profile} relapses={relapses} logs={logs} streak={streak} today={today} />
+          <StatsCard profile={profile} relapses={relapses} logs={logs} habits={habits} streak={streak} today={today} showWeek={prefs.sections.week} />
         </div>
+        {prefs.sections.map && (
         <HeatmapCard
           profile={profile}
           habits={habits}
@@ -163,11 +176,11 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
             document.getElementById("today")?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
-        <div className="grid items-start gap-5 lg:grid-cols-3">
-          <TrendCard logs={logs} today={today} />
-          <HabitRatesCard profile={profile} habits={habits} logs={logs} today={today} />
-          <TriggersCard relapses={relapses} />
-        </div>
+        )}
+        {lower.length > 0 && (
+          <div className={`grid items-start gap-5 ${lower.length === 3 ? "lg:grid-cols-3" : lower.length === 2 ? "lg:grid-cols-2" : ""}`}>{lower}</div>
+        )}
+        {prefs.sections.journal && (
         <JournalCard
           logs={logs}
           relapses={relapses}
@@ -176,12 +189,18 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
             document.getElementById("today")?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
+        )}
       </main>
+
+      <ThemeApplier theme={prefs.theme} accent={prefs.accent} />
+      <BottomNav onSos={() => setDialog("sos")} />
 
       <SosDialog
         open={dialog === "sos"}
         onClose={() => setDialog(null)}
         reasons={profile.reasons}
+        actions={prefs.sosActions}
+        breathing={prefs.breathing}
         onWin={() => {
           updateDay(todayK, (l) => ({ ...l, resisted: l.resisted + 1 }));
           setDialog(null);
@@ -192,28 +211,11 @@ function DashboardInner({ initial, email }: { initial: TrackerData; email: strin
         open={dialog === "reset"}
         onClose={() => setDialog(null)}
         startAt={profile.startAt}
+        triggers={prefs.triggers}
         onLogged={(r) => {
           setRelapses((prev) => [...prev, r].sort((a, b) => a.at.localeCompare(b.at)));
           setDialog(null);
           toast("Logged. The clock starts again now. You've done this before.");
-        }}
-      />
-      <SettingsDialog
-        open={dialog === "settings"}
-        onClose={() => setDialog(null)}
-        email={email}
-        profile={profile}
-        habits={habits}
-        relapses={relapses}
-        onSaved={(p, hs) => {
-          setProfile(p);
-          setHabits(hs);
-          setDialog(null);
-          toast("Settings saved.");
-        }}
-        onRelapseDeleted={(id) => {
-          setRelapses((prev) => prev.filter((r) => r.id !== id));
-          toast("Reset removed.");
         }}
       />
     </>
@@ -254,5 +256,89 @@ export function DashboardSkeleton() {
         </div>
       </div>
     </>
+  );
+}
+
+const WELCOME_KEY = "reclaim180:welcome-dismissed";
+
+/** A short guide for people who just started. Hidden once dismissed or after a few check-ins. */
+function WelcomeGuide() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(WELCOME_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (hidden) return null;
+  const items = [
+    { Icon: CircleCheckIcon, title: "Check in once a day", body: "Tick your habits and say how the day felt. It saves on its own." },
+    { Icon: DropIcon, title: "Use SOS when an urge hits", body: "A breathing guide and your own reasons, one tap away." },
+    { Icon: ResetIcon, title: "If you slip, log it honestly", body: "Your history stays, and the trigger helps you plan for next time." },
+  ];
+  return (
+    <section className="card relative border-accent/30 bg-[color-mix(in_oklab,var(--accent)_5%,var(--surface))]" aria-label="Getting started">
+      <button
+        type="button"
+        className="icon-btn absolute top-3 right-3 !h-8 !w-8"
+        aria-label="Hide this guide"
+        onClick={() => {
+          setHidden(true);
+          try {
+            localStorage.setItem(WELCOME_KEY, "1");
+          } catch {}
+        }}
+      >
+        <XIcon />
+      </button>
+      <div className="eyebrow !text-accent">Getting started</div>
+      <h2 className="mt-0.5 text-[20px] font-bold">Here&apos;s how to use Reclaim 180</h2>
+      <ul className="mt-4 grid gap-3 md:grid-cols-3">
+        {items.map(({ Icon, title, body }) => (
+          <li key={title} className="flex gap-3">
+            <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-accent-soft">
+              <Icon className="h-5 w-5 text-accent" />
+            </span>
+            <span>
+              <b className="block text-[14.5px]">{title}</b>
+              <span className="text-[13.5px] text-muted">{body}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Phone-only navigation, with SOS in the middle where a thumb finds it. */
+function BottomNav({ onSos }: { onSos: () => void }) {
+  const link = "grid justify-items-center gap-0.5 rounded-xl px-1 py-1 text-[11px] font-semibold whitespace-nowrap text-muted active:bg-surface-2";
+  return (
+    <nav className="bottom-nav md:hidden" aria-label="Sections">
+      <div className="mx-auto grid max-w-md grid-cols-5 items-end">
+        <a href="#top" className={link} onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+          <HomeIcon className="h-[22px] w-[22px]" />
+          Home
+        </a>
+        <a href="#today" className={link}>
+          <CircleCheckIcon className="h-[22px] w-[22px]" />
+          Today
+        </a>
+        <button type="button" onClick={onSos} className="grid justify-items-center gap-0.5 text-[11px] font-bold text-accent" aria-label="Urge SOS">
+          <span className="-mt-6 grid h-14 w-14 place-items-center rounded-full bg-accent text-accent-ink shadow-[0_8px_24px_-6px_var(--glow)] ring-4 ring-bg">
+            <DropIcon className="h-6 w-6" />
+          </span>
+          SOS
+        </button>
+        <a href="#progress" className={link}>
+          <ChartIcon className="h-[22px] w-[22px]" />
+          Progress
+        </a>
+        <Link href="/settings" className={link}>
+          <SettingsIcon className="h-[22px] w-[22px]" />
+          Settings
+        </Link>
+      </div>
+    </nav>
   );
 }

@@ -1,3 +1,5 @@
+import type { Preferences } from "./preferences";
+
 export type HabitKind = "check" | "count";
 
 export type Habit = {
@@ -7,6 +9,10 @@ export type Habit = {
   target: number;
   unit: string | null;
   position: number;
+  /** Icon key from the icon picker, or null to pick one from the name. */
+  icon: string | null;
+  /** Weekdays the habit applies to (0 = Sunday … 6 = Saturday), or null for every day. */
+  days: number[] | null;
 };
 
 export type Profile = {
@@ -15,6 +21,7 @@ export type Profile = {
   startAt: string;
   goalDays: number;
   reasons: string[];
+  preferences: Preferences;
 };
 
 export type DayLog = {
@@ -49,4 +56,6 @@ export type HabitDraft = {
   kind: HabitKind;
   target: number;
   unit: string | null;
+  icon?: string | null;
+  days?: number[] | null;
 };

@@ -8,6 +8,8 @@ export const habitDraftSchema = z.object({
   kind: z.enum(["check", "count"]),
   target: z.number().int().min(1).max(99),
   unit: z.string().trim().max(20).nullable(),
+  icon: z.string().max(24).nullable().optional(),
+  days: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
 });
 
 export const profileInputSchema = z.object({
@@ -21,7 +23,10 @@ export const createProfileSchema = profileInputSchema.extend({
   habits: z.array(habitDraftSchema).max(20),
 });
 
-export const saveSettingsSchema = createProfileSchema;
+export const saveSettingsSchema = createProfileSchema.extend({
+  /** Checked and cleaned by normalizePreferences on the server. */
+  preferences: z.unknown().optional(),
+});
 
 export const dayLogSchema = z.object({
   date: z.iso.date(),
@@ -43,7 +48,7 @@ export const relapseInputSchema = z.object({
 export const appBackupSchema = z.object({
   app: z.literal("reclaim180"),
   version: z.literal(2),
-  profile: profileInputSchema,
+  profile: profileInputSchema.extend({ preferences: z.unknown().optional() }),
   habits: z.array(habitDraftSchema.extend({ id: z.string() })),
   logs: z.array(dayLogSchema),
   relapses: z.array(relapseInputSchema),

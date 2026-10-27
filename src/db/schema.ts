@@ -104,6 +104,8 @@ export const profile = mysqlTable("profile", {
   startAt: ts("start_at").notNull(),
   goalDays: int("goal_days").notNull().default(182),
   reasons: json("reasons").$type<string[]>().notNull().$defaultFn(() => []),
+  /** Customization (theme, accent, check-in fields, sections, SOS, rewards...). Null = all defaults. */
+  preferences: json("preferences").$type<Record<string, unknown>>(),
   createdAt: ts("created_at").$defaultFn(now).notNull(),
   updatedAt: ts("updated_at").$defaultFn(now).$onUpdate(now).notNull(),
 });
@@ -121,6 +123,10 @@ export const habit = mysqlTable(
     target: int("target").notNull().default(1),
     unit: varchar("unit", { length: 20 }),
     position: int("position").notNull().default(0),
+    /** Icon key chosen by the user; null = picked from the name. */
+    icon: varchar("icon", { length: 24 }),
+    /** Weekdays the habit applies to (0 = Sunday … 6 = Saturday); null = every day. */
+    days: json("days").$type<number[]>(),
     archivedAt: ts("archived_at"),
     createdAt: ts("created_at").$defaultFn(now).notNull(),
   },

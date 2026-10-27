@@ -6,6 +6,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { dayLog, habit, profile, relapse } from "@/db/schema";
 import { auth } from "./auth";
+import { normalizePreferences } from "./tracker/preferences";
 import type { DayLog, Habit, TrackerData } from "./tracker/types";
 
 /** The current session, read once per request. */
@@ -31,7 +32,16 @@ export async function hasProfile(userId: string): Promise<boolean> {
 }
 
 export function toHabit(row: typeof habit.$inferSelect): Habit {
-  return { id: row.id, name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position };
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    target: row.target,
+    unit: row.unit,
+    position: row.position,
+    icon: row.icon ?? null,
+    days: Array.isArray(row.days) && row.days.length > 0 && row.days.length < 7 ? row.days : null,
+  };
 }
 
 export function toDayLog(row: typeof dayLog.$inferSelect): DayLog {
@@ -66,6 +76,7 @@ export async function loadTracker(userId: string): Promise<TrackerData | null> {
       startAt: p.startAt.toISOString(),
       goalDays: p.goalDays,
       reasons: p.reasons ?? [],
+      preferences: normalizePreferences(p.preferences),
     },
     habits: habits.map(toHabit),
     logs: Object.fromEntries(logs.map((l) => [l.date, toDayLog(l)])),

@@ -39,7 +39,7 @@ export function Modal({
       }}
     >
       {open && (
-        <div className="grid gap-4 p-[22px]">
+        <div className="grid gap-4 p-5 sm:p-[22px]">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 id={labelledBy} className="text-2xl font-bold">

@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { authClient } from "@/lib/auth-client";
 
 export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up"; googleEnabled: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const isSignUp = mode === "sign-up";
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -24,7 +26,11 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
       : await authClient.signIn.email({ email, password });
     setPending(false);
     if (res.error) {
-      setError(friendly(res.error.code, res.error.message));
+      setError(
+        res.error.status === 429
+          ? "Too many attempts in a short time. Wait a minute, then try again."
+          : friendly(res.error.code, res.error.message),
+      );
       return;
     }
     router.replace(isSignUp ? "/onboarding" : "/dashboard");
@@ -41,11 +47,13 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
   }
 
   return (
-    <div className="card mx-auto grid w-full max-w-[420px] gap-5 !p-7">
+    <div className="card mx-auto grid w-full max-w-[440px] gap-5 !p-8 shadow-lift">
       <div>
-        <h1 className="text-[28px] leading-tight font-extrabold">{isSignUp ? "Create your account" : "Welcome back"}</h1>
+        <h1 className="text-[30px] leading-tight font-extrabold tracking-[-0.02em]">
+          {isSignUp ? "Start your 180 days" : "Welcome back"}
+        </h1>
         <p className="mt-1 text-sm text-muted">
-          {isSignUp ? "Your tracker is private to this account." : "Sign in to pick up where you left off."}
+          {isSignUp ? "Create a free account. Your tracker is private to you." : "Sign in to pick up where you left off."}
         </p>
       </div>
 
@@ -75,15 +83,25 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
         </div>
         <div className="field">
           <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            minLength={8}
-            className="input"
-            autoComplete={isSignUp ? "new-password" : "current-password"}
-          />
+          <div className="relative">
+            <input
+              id="password"
+              name="password"
+              type={showPw ? "text" : "password"}
+              required
+              minLength={8}
+              className="input !pr-11"
+              autoComplete={isSignUp ? "new-password" : "current-password"}
+            />
+            <button
+              type="button"
+              className="absolute top-1/2 right-1.5 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted hover:bg-surface hover:text-ink"
+              aria-label={showPw ? "Hide password" : "Show password"}
+              onClick={() => setShowPw((v) => !v)}
+            >
+              {showPw ? <EyeOffIcon className="h-[18px] w-[18px]" /> : <EyeIcon className="h-[18px] w-[18px]" />}
+            </button>
+          </div>
           {isSignUp && <span className="hint">At least 8 characters.</span>}
         </div>
         {error && (
@@ -98,7 +116,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
 
       <p className="text-center text-sm text-muted">
         {isSignUp ? "Already have an account? " : "New here? "}
-        <Link href={isSignUp ? "/sign-in" : "/sign-up"} className="font-semibold text-accent">
+        <Link href={isSignUp ? "/sign-in" : "/sign-up"} className="inline-block py-1.5 font-semibold text-accent">
           {isSignUp ? "Sign in" : "Create an account"}
         </Link>
       </p>
