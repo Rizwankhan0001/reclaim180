@@ -172,12 +172,12 @@ export default function Home() {
               <Link href="/sign-up" className="btn btn-primary btn-glow !px-6 !py-3.5 text-base">
                 Start my 180 days <ArrowRightIcon />
               </Link>
-              <a href="#how" className="btn !px-6 !py-3.5 text-base">
-                See how it works
-              </a>
+              <Link href="/demo" className="btn !px-6 !py-3.5 text-base">
+                Try the demo
+              </Link>
             </div>
             <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-night-muted">
-              {["No ads, no tracking", "Only you see your data", "30 seconds a day"].map((t) => (
+              {["No sign-up needed for the demo", "No ads, no tracking", "30 seconds a day"].map((t) => (
                 <li key={t} className="flex items-center gap-2">
                   <CircleCheckIcon className="h-4 w-4 text-accent" />
                   {t}
@@ -385,9 +385,14 @@ export default function Home() {
               Day one can be <span className="text-accent">today.</span>
             </h2>
             <p className="mx-auto mt-4 max-w-md text-[17px] text-night-muted">It takes a minute to set up. Your future self will thank you.</p>
-            <Link href="/sign-up" className="btn btn-primary btn-glow mt-8 !px-7 !py-3.5 text-base">
-              Start my 180 days <ArrowRightIcon />
-            </Link>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Link href="/sign-up" className="btn btn-primary btn-glow !px-7 !py-3.5 text-base">
+                Start my 180 days <ArrowRightIcon />
+              </Link>
+              <Link href="/demo" className="btn !px-7 !py-3.5 text-base">
+                Try the demo first
+              </Link>
+            </div>
           </div>
         </section>
       </main>

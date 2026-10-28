@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { logRelapse } from "@/app/actions";
+import type { ActionResult } from "@/app/actions";
 import { Modal } from "@/components/ui/modal";
 import { useNow } from "@/lib/hooks";
 import { fromLocalInput, pad, toLocalInput } from "@/lib/tracker/dates";
@@ -121,17 +121,22 @@ function SosBody({
 
 /* -------------------------------------------------------------- Reset --- */
 
+export type RelapseInput = { at: string; trigger: string | null; note: string | null };
+
 export function ResetDialog({
   open,
   onClose,
   startAt,
   triggers,
+  submit,
   onLogged,
 }: {
   open: boolean;
   onClose: () => void;
   startAt: string;
   triggers: string[];
+  /** Saves the reset (the server action, or a local stand-in on the demo). */
+  submit: (input: RelapseInput) => Promise<ActionResult<Relapse>>;
   onLogged: (r: Relapse) => void;
 }) {
   return (
@@ -142,7 +147,7 @@ export function ResetDialog({
       title="Log a reset"
       description="A reset is information, not failure. Your clean days still count toward your total."
     >
-      <ResetForm startAt={startAt} triggers={triggers} onClose={onClose} onLogged={onLogged} />
+      <ResetForm startAt={startAt} triggers={triggers} submit={submit} onClose={onClose} onLogged={onLogged} />
     </Modal>
   );
 }
@@ -150,11 +155,13 @@ export function ResetDialog({
 function ResetForm({
   startAt,
   triggers,
+  submit,
   onClose,
   onLogged,
 }: {
   startAt: string;
   triggers: string[];
+  submit: (input: RelapseInput) => Promise<ActionResult<Relapse>>;
   onClose: () => void;
   onLogged: (r: Relapse) => void;
 }) {
@@ -171,7 +178,7 @@ function ResetForm({
     if (at.getTime() > Date.now() + 60_000) return setError("A reset can't be in the future.");
     if (at < new Date(startAt)) return setError("That's before your program started.");
     startTransition(async () => {
-      const res = await logRelapse({ at: at.toISOString(), trigger, note: String(f.get("note") ?? "").trim() || null });
+      const res = await submit({ at: at.toISOString(), trigger, note: String(f.get("note") ?? "").trim() || null });
       if (!res.ok) return setError(res.error);
       onLogged(res.data);
     });

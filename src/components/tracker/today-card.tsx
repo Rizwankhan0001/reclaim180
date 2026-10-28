@@ -5,7 +5,7 @@ import { CheckIcon, ChevronLeft, ChevronRight } from "@/components/icons";
 import { HabitIcon } from "@/components/habit-icon";
 import { SCALE_WORDS } from "@/lib/tracker/constants";
 import { addDays, daysBetween, fmtLong, fmtShort, keyOf, parseKey } from "@/lib/tracker/dates";
-import { emptyLog, habitValue, isScheduled, programStart } from "@/lib/tracker/math";
+import { dayScore, emptyLog, habitValue, isScheduled, programStart } from "@/lib/tracker/math";
 import type { DayLog, Habit, Profile } from "@/lib/tracker/types";
 
 type ScaleKey = "mood" | "energy" | "urge";
@@ -19,6 +19,14 @@ type Props = {
   isResetDay: boolean;
   onChange: (fn: (log: DayLog) => DayLog) => void;
   onPick: (key: string) => void;
+  /** Called when the last scheduled habit of the day gets ticked. */
+  onAllDone?: () => void;
+};
+
+const buzz = (pattern: number | number[]) => {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch {}
 };
 
 function encouragement(done: number, total: number, isToday: boolean) {
@@ -29,7 +37,8 @@ function encouragement(done: number, total: number, isToday: boolean) {
   return isToday ? `${left} to go. You've got this.` : `${left} not ticked for this day.`;
 }
 
-export function TodayCard({ date, todayKey, profile, habits, logs, isResetDay, onChange, onPick }: Props) {
+export function TodayCard({ date, todayKey, profile, habits, logs, isResetDay, onChange, onPick, onAllDone }: Props) {
+  const [burst, setBurst] = useState(0);
   const log = logs[date] ?? emptyLog(date);
   const d = parseKey(date);
   const start = programStart(profile);
@@ -43,13 +52,26 @@ export function TodayCard({ date, todayKey, profile, habits, logs, isResetDay, o
   const show = profile.preferences.checkin;
   const anyScale = show.mood || show.energy || show.urge;
 
-  const setHabit = (id: string, v: number) => onChange((l) => ({ ...l, habits: { ...l.habits, [id]: v } }));
+  const allDone = (l: DayLog) => due.length > 0 && due.every((h) => habitValue(h, l) >= 1);
+  const setHabit = (id: string, v: number) => {
+    const fn = (l: DayLog) => ({ ...l, habits: { ...l.habits, [id]: v } });
+    const before = allDone(log);
+    const after = allDone(fn(log));
+    onChange(fn);
+    if (v > Number(log.habits[id] ?? 0)) buzz(8);
+    if (!before && after) {
+      setBurst((b) => b + 1);
+      buzz([12, 60, 12]);
+      onAllDone?.();
+    }
+  };
   const setScale = (k: ScaleKey, v: number) => onChange((l) => ({ ...l, [k]: l[k] === v ? null : v }));
 
   return (
-    <section id="today" className="card scroll-mt-20" aria-labelledby="todayTitle">
+    <section id="today" className="card relative scroll-mt-20" aria-labelledby="todayTitle">
+      {burst > 0 && <Confetti key={burst} />}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="eyebrow">
             {isToday ? "Today's check-in" : "Editing a past day"} · Day {dayN > 0 ? dayN : "–"}
           </div>
@@ -57,33 +79,25 @@ export function TodayCard({ date, todayKey, profile, habits, logs, isResetDay, o
             {fmtLong(d)}
           </h2>
         </div>
-        <div className="flex items-center gap-1">
-          {isResetDay && <span className="tag tag-bad mr-1">Reset day</span>}
-          <button
-            type="button"
-            className="icon-btn !h-9 !w-9"
-            aria-label="Previous day"
-            disabled={date <= minKey}
-            onClick={() => onPick(keyOf(addDays(d, -1)))}
-          >
-            <ChevronLeft />
-          </button>
+        <div className="flex items-center gap-1.5">
+          {isResetDay && <span className="tag tag-bad">Reset day</span>}
           {!isToday && (
-            <button type="button" className="btn btn-quiet !px-2.5 !py-1.5" onClick={() => onPick(todayKey)}>
-              Today
+            <button type="button" className="btn !px-3 !py-1.5 !text-[13px]" onClick={() => onPick(todayKey)}>
+              Back to today
             </button>
           )}
-          <button
-            type="button"
-            className="icon-btn !h-9 !w-9"
-            aria-label="Next day"
-            disabled={isToday}
-            onClick={() => onPick(keyOf(addDays(d, 1)))}
-          >
-            <ChevronRight />
-          </button>
         </div>
       </div>
+
+      <WeekStrip
+        selected={date}
+        todayKey={todayKey}
+        minKey={minKey}
+        weekStart={profile.preferences.weekStart}
+        habits={habits}
+        logs={logs}
+        onPick={onPick}
+      />
 
       {/* progress summary */}
       <div className="mt-4 flex items-center gap-4 rounded-2xl bg-surface-2 p-3.5">
@@ -323,6 +337,131 @@ function NoteField({ initial, onCommit }: { initial: string; onCommit: (v: strin
           }, 500);
         }}
       />
+    </div>
+  );
+}
+
+/** Seven days around the selected one, each with a small completion ring. Tap to switch day. */
+function WeekStrip({
+  selected,
+  todayKey,
+  minKey,
+  weekStart,
+  habits,
+  logs,
+  onPick,
+}: {
+  selected: string;
+  todayKey: string;
+  minKey: string;
+  weekStart: 0 | 1;
+  habits: Habit[];
+  logs: Record<string, DayLog>;
+  onPick: (key: string) => void;
+}) {
+  const sel = parseKey(selected);
+  const first = addDays(sel, -((sel.getDay() - weekStart + 7) % 7));
+  const days = Array.from({ length: 7 }, (_, i) => addDays(first, i));
+  const clamp = (k: string) => (k > todayKey ? todayKey : k < minKey ? minKey : k);
+  const prevWeek = clamp(keyOf(addDays(sel, -7)));
+  const nextWeek = clamp(keyOf(addDays(sel, 7)));
+  const r = 13;
+  const c = 2 * Math.PI * r;
+
+  return (
+    <div className="mt-4 flex items-center gap-1 sm:gap-2">
+      <button
+        type="button"
+        className="icon-btn !h-9 !w-8 flex-none !border-transparent !bg-transparent"
+        aria-label="Previous week"
+        disabled={keyOf(first) <= minKey}
+        onClick={() => onPick(prevWeek)}
+      >
+        <ChevronLeft />
+      </button>
+      <div className="grid flex-1 grid-cols-7 gap-0.5 sm:gap-1">
+        {days.map((day) => {
+          const k = keyOf(day);
+          const off = k > todayKey || k < minKey;
+          const score = off ? null : dayScore(habits, logs[k], k);
+          const isSel = k === selected;
+          const isToday = k === todayKey;
+          return (
+            <button
+              key={k}
+              type="button"
+              disabled={off}
+              aria-pressed={isSel}
+              aria-label={`${fmtLong(day)}${score != null ? `, ${Math.round(score * 100)}% of habits` : ""}`}
+              onClick={() => onPick(k)}
+              className={`grid justify-items-center gap-1 rounded-xl py-1.5 transition-colors ${
+                isSel ? "bg-accent-soft" : off ? "opacity-35" : "hover:bg-surface-2"
+              }`}
+            >
+              <span className={`text-[10.5px] font-semibold uppercase ${isToday ? "text-accent" : "text-muted"}`}>
+                {day.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
+              </span>
+              <span className="relative grid h-8 w-8 place-items-center">
+                <svg viewBox="0 0 32 32" className="absolute inset-0 h-full w-full" aria-hidden="true">
+                  <circle cx="16" cy="16" r={r} fill="none" stroke="var(--heat-0)" strokeWidth="3" />
+                  {score != null && score > 0 && (
+                    <circle
+                      cx="16"
+                      cy="16"
+                      r={r}
+                      fill="none"
+                      stroke={score >= 1 ? "var(--good)" : "var(--heat-3)"}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={`${c * score} ${c}`}
+                      transform="rotate(-90 16 16)"
+                    />
+                  )}
+                </svg>
+                <span className={`num relative text-[12px] ${isSel ? "font-bold text-ink" : "text-muted"}`}>{day.getDate()}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="icon-btn !h-9 !w-8 flex-none !border-transparent !bg-transparent"
+        aria-label="Next week"
+        disabled={keyOf(addDays(first, 6)) >= todayKey}
+        onClick={() => onPick(nextWeek)}
+      >
+        <ChevronRight />
+      </button>
+    </div>
+  );
+}
+
+const CONFETTI_COLORS = ["var(--accent)", "var(--heat-3)", "var(--good)", "var(--heat-2)", "#f6c34a"];
+
+/** A short burst of confetti when the day's habits are all done. */
+function Confetti() {
+  return (
+    <div className="confetti pointer-events-none absolute inset-x-0 top-40 z-10 h-0" aria-hidden="true">
+      {Array.from({ length: 22 }, (_, i) => {
+        const angle = (i / 22) * Math.PI * 2;
+        const dist = 90 + (i % 5) * 22;
+        return (
+          <i
+            key={i}
+            style={
+              {
+                left: "50%",
+                background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+                "--x": `${Math.cos(angle) * dist}px`,
+                "--y": `${Math.sin(angle) * dist * 0.7 - 30}px`,
+                "--r": `${(i % 2 ? 1 : -1) * (180 + i * 25)}deg`,
+                animationDelay: `${(i % 4) * 25}ms`,
+              } as React.CSSProperties
+            }
+          />
+        );
+      })}
     </div>
   );
 }

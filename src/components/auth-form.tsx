@@ -114,6 +114,11 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
         </button>
       </form>
 
+      {isSignUp && (
+        <Link href="/demo" className="-mt-1 block text-center text-[13px] text-muted hover:text-ink">
+          Not sure yet? <span className="font-semibold text-accent">Try the demo</span> first.
+        </Link>
+      )}
       <p className="text-center text-sm text-muted">
         {isSignUp ? "Already have an account? " : "New here? "}
         <Link href={isSignUp ? "/sign-in" : "/sign-up"} className="inline-block py-1.5 font-semibold text-accent">

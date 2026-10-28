@@ -1,6 +1,6 @@
 "use client";
 
-import { DropIcon, FlagIcon, InfoIcon, LockIcon, ResetIcon, TrophyIcon } from "@/components/icons";
+import { ArrowRightIcon, CircleCheckIcon, DropIcon, FlagIcon, InfoIcon, LockIcon, ResetIcon, TrophyIcon } from "@/components/icons";
 import { PhaseTrack } from "@/components/phase-track";
 import { useNow } from "@/lib/hooks";
 import { DAY_MS, fmtDuration, fmtShort, pad } from "@/lib/tracker/dates";
@@ -12,7 +12,7 @@ function Ring({ frac, ticks, days }: { frac: number; ticks: { frac: number; got:
   const c = 2 * Math.PI * r;
   const f = Math.max(0, Math.min(1, frac));
   return (
-    <div className="relative h-[220px] w-[220px] max-w-full md:h-[260px] md:w-[260px]">
+    <div className="relative h-[190px] w-[190px] max-w-full sm:h-[220px] sm:w-[220px] md:h-[260px] md:w-[260px]">
       <svg viewBox="0 0 260 260" className="block h-full w-full" role="img" aria-label={`${Math.round(f * 100)}% of your goal`}>
         <defs>
           <linearGradient id="heroRing" x1="0" y1="0" x2="1" y2="1">
@@ -50,7 +50,7 @@ function Ring({ frac, ticks, days }: { frac: number; ticks: { frac: number; got:
         })}
       </svg>
       <div className="absolute inset-0 grid place-content-center text-center">
-        <div className="font-display text-[64px] leading-[0.9] font-extrabold tracking-[-0.04em] text-night-ink tabular-nums md:text-[80px]">
+        <div className="font-display text-[56px] leading-[0.9] font-extrabold tracking-[-0.04em] text-night-ink tabular-nums sm:text-[64px] md:text-[80px]">
           {days}
         </div>
         <div className="mt-2 text-[13px] font-medium text-night-muted">{days === 1 ? "day" : "days"} clean</div>
@@ -85,11 +85,14 @@ function Clock({ since }: { since: number }) {
 export function Hero({
   profile,
   streak,
+  today,
   onSos,
   onReset,
 }: {
   profile: Profile;
   streak: StreakInfo;
+  /** Today's habit progress, for the check-in shortcut. */
+  today: { done: number; total: number };
   onSos: () => void;
   onReset: () => void;
 }) {
@@ -145,7 +148,23 @@ export function Hero({
             {mantra && (
               <p className="mt-2 font-display text-[17px] font-semibold text-night-ink/90 italic">&ldquo;{mantra}&rdquo;</p>
             )}
-            <p className="mt-1.5 text-[14px] text-balance text-night-muted">
+            <a
+              href="#today"
+              className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[13.5px] font-semibold transition-colors ${
+                today.total > 0 && today.done >= today.total
+                  ? "border-good/40 bg-good/15 text-night-ink"
+                  : "border-white/15 bg-white/[0.07] text-night-ink hover:bg-white/[0.12]"
+              }`}
+            >
+              <CircleCheckIcon className={`h-4 w-4 ${today.total > 0 && today.done >= today.total ? "text-good" : "text-accent"}`} />
+              {today.total === 0
+                ? "Nothing scheduled today"
+                : today.done >= today.total
+                  ? `Today's check-in done · ${today.done} of ${today.total}`
+                  : `Today: ${today.done} of ${today.total} habits · Check in`}
+              {today.done < today.total && <ArrowRightIcon className="h-4 w-4" />}
+            </a>
+            <p className="mt-3 text-[14px] text-balance text-night-muted">
               Best streak {streak.bestDays} {streak.bestDays === 1 ? "day" : "days"} · Started {fmtShort(new Date(profile.startAt))} · Goal {goal} days
             </p>
           </div>
@@ -183,7 +202,7 @@ export function Hero({
             <button type="button" className="btn btn-primary btn-glow !px-5" onClick={onSos}>
               <DropIcon /> Urge? Get through it
             </button>
-            <button type="button" className="btn !px-5" onClick={onReset}>
+            <button type="button" className="btn btn-quiet !px-4 !text-night-muted hover:!text-night-ink" onClick={onReset}>
               <ResetIcon /> Log a reset
             </button>
           </div>
