@@ -217,3 +217,10 @@ export const CircleCheckIcon = (p: P) => (
     <path d="M8 12.5l2.7 2.7L16 9.8" />
   </svg>
 );
+export const LogOutIcon = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5" />
+    <path d="M21 12H9" />
+  </svg>
+);

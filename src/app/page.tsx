@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { ArrowRightIcon, BrandMark, CircleCheckIcon, DownloadIcon, EyeOffIcon, LockIcon, PlusIcon, ShieldIcon } from "@/components/icons";
+import { ArrowRightIcon, CircleCheckIcon, DownloadIcon, EyeOffIcon, LockIcon, PlusIcon, ShieldIcon } from "@/components/icons";
 import { PhaseTrack } from "@/components/phase-track";
 import {
   MiniCustomize,
@@ -66,7 +67,7 @@ const STEPS = [
 const FAQ = [
   {
     q: "Is it really private?",
-    a: "Yes. Your check-ins are tied to your account and nobody else can see them. There are no ads and no tracking scripts, and you can export or erase everything from Settings at any time.",
+    a: "Yes. Your check-ins are tied to your account and nobody else can see them. There are no ads and no tracking scripts, and you can export your data, erase it, or delete your account from Settings at any time.",
   },
   {
     q: "What happens if I relapse?",
@@ -88,12 +89,16 @@ const FAQ = [
     q: "Does it cost anything?",
     a: "No. Create an account and start tracking for free.",
   },
+  {
+    q: "Who is it for?",
+    a: "Adults 18 and older who want to quit porn and build better daily habits. It's a self-tracking tool, not medical advice. If you're struggling, a doctor or counselor can help.",
+  },
 ];
 
 const PRIVACY = [
   { Icon: EyeOffIcon, title: "Only you see it", body: "Entries are tied to your account. Nobody else can read them." },
   { Icon: ShieldIcon, title: "No ads, no tracking", body: "No ad networks and no analytics scripts watching what you do." },
-  { Icon: DownloadIcon, title: "Your data, your call", body: "Export a backup or erase everything from Settings in one click." },
+  { Icon: DownloadIcon, title: "Your data, your call", body: "Export a backup, erase your data or delete your account from Settings." },
 ];
 
 function FeatureRow({
@@ -397,14 +402,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-line py-8">
-        <div className="wrap flex flex-wrap items-center justify-between gap-4 text-[13px] text-muted">
-          <span className="flex items-center gap-2 font-display text-[15px] font-bold text-ink">
-            <BrandMark className="h-5 w-5" /> Reclaim 180
-          </span>
-          <span>Your data stays yours. Export or erase it any time.</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   );
 }

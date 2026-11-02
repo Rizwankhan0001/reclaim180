@@ -2,11 +2,38 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { authClient } from "@/lib/auth-client";
 
-export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up"; googleEnabled: boolean }) {
+/** Links to the terms and privacy policy. They open in a new tab so a half-filled form isn't lost. */
+function PolicyLinks() {
+  return (
+    <>
+      <Link href="/terms" target="_blank" className="font-semibold text-ink underline underline-offset-2">
+        Terms
+      </Link>{" "}
+      and{" "}
+      <Link href="/privacy" target="_blank" className="font-semibold text-ink underline underline-offset-2">
+        Privacy Policy
+      </Link>
+    </>
+  );
+}
+
+export function AuthForm({
+  mode,
+  googleEnabled,
+  resetEnabled = false,
+  notice,
+}: {
+  mode: "sign-in" | "sign-up";
+  googleEnabled: boolean;
+  /** Shows "Forgot password?" (only when email can be sent). */
+  resetEnabled?: boolean;
+  /** A message shown above the form, e.g. after a password reset. */
+  notice?: ReactNode;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -20,6 +47,10 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
     const email = String(f.get("email") ?? "").trim();
     const password = String(f.get("password") ?? "");
     const name = String(f.get("name") ?? "").trim();
+    if (isSignUp && !f.get("consent")) {
+      setError("Please confirm you're 18 or older and agree to the Terms and Privacy Policy.");
+      return;
+    }
     setPending(true);
     const res = isSignUp
       ? await authClient.signUp.email({ email, password, name: name || email.split("@")[0] })
@@ -62,6 +93,10 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
           <button type="button" className="btn w-full" onClick={google} disabled={pending}>
             Continue with Google
           </button>
+          <p className="-mt-2 text-center text-[12px] text-muted">
+            {isSignUp ? "By continuing with Google" : "If you're new, continuing with Google creates an account. By continuing"}, you confirm
+            you&apos;re 18 or older and agree to the <PolicyLinks />.
+          </p>
           <div className="flex items-center gap-3 text-xs text-faint">
             <span className="h-px flex-1 bg-line" />
             or
@@ -69,6 +104,8 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
           </div>
         </>
       )}
+
+      {notice}
 
       <form onSubmit={onSubmit} className="grid gap-4">
         {isSignUp && (
@@ -82,7 +119,16 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
           <input id="email" name="email" type="email" required className="input" autoComplete="email" />
         </div>
         <div className="field">
-          <label htmlFor="password">Password</label>
+          <div className="flex items-baseline justify-between gap-3">
+            <label htmlFor="password" className="text-[13px] font-[650]">
+              Password
+            </label>
+            {!isSignUp && resetEnabled && (
+              <Link href="/forgot-password" className="-my-2 py-2 text-[13px] font-semibold text-accent">
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <div className="relative">
             <input
               id="password"
@@ -90,12 +136,12 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
               type={showPw ? "text" : "password"}
               required
               minLength={8}
-              className="input !pr-11"
+              className="input !pr-12"
               autoComplete={isSignUp ? "new-password" : "current-password"}
             />
             <button
               type="button"
-              className="absolute top-1/2 right-1.5 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted hover:bg-surface hover:text-ink"
+              className="absolute top-1/2 right-1 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-lg text-muted hover:bg-surface hover:text-ink"
               aria-label={showPw ? "Hide password" : "Show password"}
               onClick={() => setShowPw((v) => !v)}
             >
@@ -104,6 +150,14 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
           </div>
           {isSignUp && <span className="hint">At least 8 characters.</span>}
         </div>
+        {isSignUp && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface-2 p-3 text-[13.5px] text-muted">
+            <input type="checkbox" name="consent" required className="mt-0.5 h-5 w-5 flex-none accent-[var(--accent)]" />
+            <span>
+              I&apos;m 18 or older, and I agree to the <PolicyLinks />.
+            </span>
+          </label>
+        )}
         {error && (
           <p role="alert" className="rounded-lg bg-bad/10 px-3 py-2 text-sm font-medium text-bad">
             {error}
@@ -115,7 +169,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: "sign-in" | "sign-up";
       </form>
 
       {isSignUp && (
-        <Link href="/demo" className="-mt-1 block text-center text-[13px] text-muted hover:text-ink">
+        <Link href="/demo" className="-my-1 block py-2 text-center text-[13px] text-muted hover:text-ink">
           Not sure yet? <span className="font-semibold text-accent">Try the demo</span> first.
         </Link>
       )}

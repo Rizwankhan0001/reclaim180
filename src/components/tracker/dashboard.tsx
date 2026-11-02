@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteRelapse, logRelapse, saveDay } from "@/app/actions";
 import { SiteHeader } from "@/components/site-header";
-import { ArrowRightIcon, ChartIcon, CircleCheckIcon, DropIcon, HomeIcon, PlusIcon, ResetIcon, SettingsIcon, XIcon } from "@/components/icons";
+import { ArrowRightIcon, ChartIcon, CircleCheckIcon, DownloadIcon, DropIcon, HomeIcon, PlusIcon, ResetIcon, SettingsIcon, XIcon } from "@/components/icons";
+import { AccountMenu } from "@/components/account-menu";
 import { ThemeApplier } from "@/components/theme-applier";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { useIsClient, useNow } from "@/lib/hooks";
+import { isSigningOut } from "@/lib/sign-out";
 import { keyOf, startOfDay } from "@/lib/tracker/dates";
 import { emptyLog, habitValue, isLogged, relapseDayMap, scheduledFor, streakInfo } from "@/lib/tracker/math";
 import type { DayLog, Habit, Profile, Relapse, TrackerData } from "@/lib/tracker/types";
@@ -20,11 +22,78 @@ type Sync = "saved" | "saving" | "offline" | "error" | "demo";
 type DialogName = "sos" | "reset" | null;
 type Mode = "live" | "demo";
 
-export function Dashboard(props: { initial: TrackerData; mode?: Mode }) {
+export function Dashboard(props: {
+  initial: TrackerData;
+  mode?: Mode;
+  /** localStorage key for check-ins that haven't reached the server yet (live mode only). */
+  storageKey?: string;
+  /** Who's signed in, for the account menu (live mode only). */
+  account?: { name: string; email: string };
+}) {
   return (
     <ToastProvider aboveBottomNav>
-      <DashboardInner initial={props.initial} mode={props.mode ?? "live"} />
+      <DashboardInner initial={props.initial} mode={props.mode ?? "live"} storageKey={props.storageKey} account={props.account} />
     </ToastProvider>
+  );
+}
+
+/* ---- unsaved check-ins, kept in the browser so closing the tab while offline loses nothing ---- */
+
+const isScale = (v: unknown) => v === null || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5);
+
+function isDayLog(v: unknown, date: string): v is DayLog {
+  if (!v || typeof v !== "object") return false;
+  const l = v as Record<string, unknown>;
+  return (
+    l.date === date &&
+    isScale(l.mood) &&
+    isScale(l.energy) &&
+    isScale(l.urge) &&
+    Number.isInteger(l.resisted) &&
+    (l.note === null || typeof l.note === "string") &&
+    Boolean(l.habits) &&
+    typeof l.habits === "object" &&
+    Object.values(l.habits as object).every((x) => typeof x === "number")
+  );
+}
+
+function sameLog(a: DayLog, b: DayLog): boolean {
+  const ha = Object.entries(a.habits).filter(([, v]) => v);
+  const hb = Object.entries(b.habits).filter(([, v]) => v);
+  return (
+    a.mood === b.mood &&
+    a.energy === b.energy &&
+    a.urge === b.urge &&
+    a.resisted === b.resisted &&
+    (a.note?.trim() || null) === (b.note?.trim() || null) &&
+    ha.length === hb.length &&
+    ha.every(([k, v]) => b.habits[k] === v)
+  );
+}
+
+function readUnsaved(key: string): Record<string, DayLog> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    if (!raw || typeof raw !== "object") return {};
+    return Object.fromEntries(Object.entries(raw).filter(([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && isDayLog(v, k)));
+  } catch {
+    return {};
+  }
+}
+
+function writeUnsaved(key: string, logs: Record<string, DayLog>) {
+  try {
+    if (Object.keys(logs).length) localStorage.setItem(key, JSON.stringify(logs));
+    else localStorage.removeItem(key);
+  } catch {}
+}
+
+/** Stored check-ins that differ from what the server has. */
+function unsavedToReplay(key: string | undefined, server: Record<string, DayLog>): Record<string, DayLog> {
+  if (!key || typeof window === "undefined") return {};
+  const today = keyOf(new Date());
+  return Object.fromEntries(
+    Object.entries(readUnsaved(key)).filter(([k, log]) => k <= today && !sameLog(server[k] ?? emptyLog(k), log)),
   );
 }
 
@@ -59,7 +128,17 @@ function useActiveSection(ids: string[]) {
   return active;
 }
 
-function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode }) {
+function DashboardInner({
+  initial,
+  mode,
+  storageKey,
+  account,
+}: {
+  initial: TrackerData;
+  mode: Mode;
+  storageKey?: string;
+  account?: { name: string; email: string };
+}) {
   const toast = useToast();
   const isClient = useIsClient();
   const ticked = useNow(30_000);
@@ -70,11 +149,23 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
 
   const [profile] = useState<Profile>(initial.profile);
   const [habits] = useState<Habit[]>(initial.habits);
-  const [logs, setLogs] = useState<Record<string, DayLog>>(initial.logs);
+  // Check-ins from an earlier visit that never reached the server. Read during the first client render
+  // (the server render shows the skeleton, so this can't cause a hydration mismatch).
+  const [replay] = useState(() => (demo ? {} : unsavedToReplay(storageKey, initial.logs)));
+  const [logs, setLogs] = useState<Record<string, DayLog>>(() => ({ ...initial.logs, ...replay }));
   const [relapses, setRelapses] = useState<Relapse[]>(initial.relapses);
   const [selected, setSelected] = useState<string | null>(null); // null = today
-  const [sync, setSync] = useState<Sync>(demo ? "demo" : "saved");
-  const [dialog, setDialog] = useState<DialogName>(null);
+  const [sync, setSync] = useState<Sync>(demo ? "demo" : Object.keys(replay).length ? "saving" : "saved");
+  // "?sos=1" opens the urge screen straight away (the "Urge SOS" shortcut on the installed app's icon).
+  const [dialog, setDialog] = useState<DialogName>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("sos") ? "sos" : null,
+  );
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("sos")) return;
+    url.searchParams.delete("sos");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }, []);
 
   /* ---- background saving: debounced per day, serialized per day, retried when back online ---- */
   const logsRef = useRef(logs);
@@ -83,6 +174,20 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
   const failed = useRef(new Set<string>());
   const inflight = useRef(0);
   const warned = useRef(false);
+  /** Days changed here and not yet confirmed saved. Mirrored to localStorage. */
+  const unsaved = useRef(new Set<string>());
+
+  /** Writes this tab's unsaved days, keeping any another open tab stored. `saved` is a day the server just confirmed. */
+  const persistUnsaved = useCallback(
+    (saved?: string) => {
+      if (!storageKey) return;
+      const stored = readUnsaved(storageKey);
+      if (saved) delete stored[saved];
+      for (const d of unsaved.current) if (logsRef.current[d]) stored[d] = logsRef.current[d];
+      writeUnsaved(storageKey, stored);
+    },
+    [storageKey],
+  );
 
   const settle = useCallback(() => {
     if (inflight.current === 0 && timers.current.size === 0 && failed.current.size === 0) setSync("saved");
@@ -100,7 +205,8 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
           inflight.current++;
           const prev = chains.current.get(date) ?? Promise.resolve();
           const next = prev.then(async () => {
-            const res = await saveDay(logsRef.current[date]).catch(() => null);
+            const sent = logsRef.current[date];
+            const res = await saveDay(sent).catch(() => null);
             inflight.current--;
             if (!res || !res.ok) {
               failed.current.add(date);
@@ -114,14 +220,30 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
             }
             failed.current.delete(date);
             if (failed.current.size === 0) warned.current = false;
+            // Saved. Drop the browser copy, unless the day changed again while this save was in flight.
+            if (logsRef.current[date] === sent && !timers.current.has(date)) {
+              unsaved.current.delete(date);
+              persistUnsaved(date);
+            }
             settle();
           });
           chains.current.set(date, next);
         }, delay),
       );
     },
-    [demo, settle, toast],
+    [demo, settle, toast, persistUnsaved],
   );
+
+  // Send check-ins left over from an earlier visit (e.g. made offline, then the tab was closed).
+  useEffect(() => {
+    // Stored days the server already has (saved just before the tab closed) can go.
+    if (storageKey) writeUnsaved(storageKey, replay);
+    const dates = Object.keys(replay);
+    if (!dates.length) return;
+    for (const d of dates) unsaved.current.add(d);
+    const id = setTimeout(() => dates.forEach((d) => queueSave(d, 0)), 0);
+    return () => clearTimeout(id);
+  }, [replay, queueSave, storageKey]);
 
   // Retry anything that failed: when the connection comes back, and every 20 seconds meanwhile.
   useEffect(() => {
@@ -151,15 +273,21 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
       const prev = logsRef.current[date] ?? emptyLog(date);
       logsRef.current = { ...logsRef.current, [date]: fn(prev) };
       setLogs(logsRef.current);
+      if (!demo) {
+        unsaved.current.add(date);
+        persistUnsaved();
+      }
       queueSave(date);
     },
-    [queueSave],
+    [demo, queueSave, persistUnsaved],
   );
 
   // Warn before closing the tab while something is unsaved.
   useEffect(() => {
     if (sync !== "saving" && sync !== "offline" && sync !== "error") return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isSigningOut()) e.preventDefault();
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [sync]);
@@ -247,6 +375,15 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
           <Link href="/sign-up" className="btn btn-primary !px-3.5 !py-2 !text-[13.5px]">
             Create account
           </Link>
+        ) : account ? (
+          <AccountMenu
+            name={profile.displayName || account.name}
+            email={account.email}
+            confirmSignOut={() =>
+              sync === "saved" ||
+              window.confirm("Some of your changes haven't saved yet. If you sign out now, they'll be lost. Sign out anyway?")
+            }
+          />
         ) : (
           <Link href="/settings" className="icon-btn" aria-label="Settings">
             <SettingsIcon />
@@ -282,6 +419,7 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
 
       <main className="wrap grid gap-5 pt-6 pb-28 md:pb-16">
         {!demo && loggedDays < 3 && <WelcomeGuide />}
+        {!demo && loggedDays >= 1 && <InstallHint />}
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           <TodayCard
             key={sel}
@@ -311,7 +449,7 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
         {prefs.sections.journal && <JournalCard logs={logs} relapses={relapses} onOpen={openDay} />}
       </main>
 
-      {!demo && <ThemeApplier theme={prefs.theme} accent={prefs.accent} />}
+      {!demo && <ThemeApplier theme={prefs.theme} accent={prefs.accent} remember />}
       <BottomNav onSos={() => setDialog("sos")} active={active} progressId={progressId} demo={demo} />
 
       <SosDialog
@@ -321,6 +459,9 @@ function DashboardInner({ initial, mode }: { initial: TrackerData; mode: Mode })
         actions={prefs.sosActions}
         breathing={prefs.breathing}
         onWin={() => {
+          try {
+            navigator.vibrate?.([12, 60, 12]);
+          } catch {}
           updateDay(todayK, (l) => ({ ...l, resisted: l.resisted + 1 }));
           setDialog(null);
           toast("Logged as an urge beaten. That's the work.", { tone: "success" });
@@ -413,7 +554,7 @@ function WelcomeGuide() {
     <section className="card relative border-accent/30 bg-[color-mix(in_oklab,var(--accent)_5%,var(--surface))]" aria-label="Getting started">
       <button
         type="button"
-        className="icon-btn absolute top-3 right-3 !h-8 !w-8"
+        className="icon-btn absolute top-3 right-3 !h-10 !w-10 sm:!h-8 sm:!w-8"
         aria-label="Hide this guide"
         onClick={() => {
           setHidden(true);
@@ -439,6 +580,93 @@ function WelcomeGuide() {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+const INSTALL_KEY = "reclaim180:install-dismissed";
+
+type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
+type InstallWindow = Window & { __r180Install?: InstallEvent };
+
+function isInstalled() {
+  return window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
+}
+
+function installDismissed() {
+  try {
+    return localStorage.getItem(INSTALL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * On phones, suggests adding the app to the home screen: an Install button where the browser
+ * supports it (Chrome on Android), or the Share-menu steps on iPhone and iPad. Hidden once installed or dismissed.
+ */
+function InstallHint() {
+  const [kind, setKind] = useState<"none" | "button" | "ios">(() => {
+    if (installDismissed() || isInstalled() || !window.matchMedia("(pointer: coarse)").matches) return "none";
+    if ((window as InstallWindow).__r180Install) return "button";
+    const ua = navigator.userAgent;
+    const apple = /iPhone|iPad|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+    return apple ? "ios" : "none";
+  });
+
+  useEffect(() => {
+    const installable = () => {
+      if (!installDismissed() && !isInstalled() && window.matchMedia("(pointer: coarse)").matches) setKind("button");
+    };
+    const installed = () => setKind("none");
+    window.addEventListener("r180-installable", installable);
+    window.addEventListener("appinstalled", installed);
+    return () => {
+      window.removeEventListener("r180-installable", installable);
+      window.removeEventListener("appinstalled", installed);
+    };
+  }, []);
+
+  if (kind === "none") return null;
+
+  const dismiss = () => {
+    setKind("none");
+    try {
+      localStorage.setItem(INSTALL_KEY, "1");
+    } catch {}
+  };
+  const install = async () => {
+    const e = (window as InstallWindow).__r180Install;
+    if (!e) return;
+    await e.prompt();
+    const { outcome } = await e.userChoice;
+    (window as InstallWindow).__r180Install = undefined;
+    if (outcome === "accepted") setKind("none");
+  };
+
+  return (
+    <section className="card relative flex items-start gap-3 pr-14" aria-label="Install the app">
+      <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-accent-soft">
+        <DownloadIcon className="h-5 w-5 text-accent" />
+      </span>
+      <div className="min-w-0">
+        <b className="block text-[15px]">Put Reclaim 180 on your home screen</b>
+        {kind === "button" ? (
+          <>
+            <span className="block text-[13.5px] text-muted">It opens full screen like an app, one tap away when an urge hits.</span>
+            <button type="button" className="btn btn-primary mt-3 !py-2" onClick={install}>
+              Install app
+            </button>
+          </>
+        ) : (
+          <span className="block text-[13.5px] text-muted">
+            In Safari, tap the <b className="text-ink">Share</b> button, then <b className="text-ink">Add to Home Screen</b>. It opens full screen like an app.
+          </span>
+        )}
+      </div>
+      <button type="button" className="icon-btn absolute top-3 right-3 !h-10 !w-10 sm:!h-8 sm:!w-8" aria-label="Hide this tip" onClick={dismiss}>
+        <XIcon />
+      </button>
     </section>
   );
 }

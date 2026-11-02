@@ -4,13 +4,13 @@ import { DEFAULT_PREFERENCES } from "./preferences";
 import type { DayLog, Habit, TrackerData } from "./types";
 
 const HABITS: Omit<Habit, "position">[] = [
-  { id: "d-move", name: "Move 30 minutes", kind: "check", target: 1, unit: null, icon: null, days: null },
-  { id: "d-meditate", name: "Meditate 10 minutes", kind: "check", target: 1, unit: null, icon: null, days: null },
-  { id: "d-cold", name: "Cold shower", kind: "check", target: 1, unit: null, icon: null, days: null },
-  { id: "d-read", name: "Read 20 pages", kind: "check", target: 1, unit: null, icon: null, days: null },
-  { id: "d-sleep", name: "In bed by 11pm", kind: "check", target: 1, unit: null, icon: null, days: null },
-  { id: "d-gym", name: "Gym session", kind: "check", target: 1, unit: null, icon: "dumbbell", days: [1, 3, 5] },
-  { id: "d-water", name: "Water", kind: "count", target: 8, unit: "glasses", icon: null, days: null },
+  { id: "d-move", name: "Move 30 minutes", kind: "check", target: 1, unit: null, icon: null, days: null, addedAt: null },
+  { id: "d-meditate", name: "Meditate 10 minutes", kind: "check", target: 1, unit: null, icon: null, days: null, addedAt: null },
+  { id: "d-cold", name: "Cold shower", kind: "check", target: 1, unit: null, icon: null, days: null, addedAt: null },
+  { id: "d-read", name: "Read 20 pages", kind: "check", target: 1, unit: null, icon: null, days: null, addedAt: null },
+  { id: "d-sleep", name: "In bed by 11pm", kind: "check", target: 1, unit: null, icon: null, days: null, addedAt: null },
+  { id: "d-gym", name: "Gym session", kind: "check", target: 1, unit: null, icon: "dumbbell", days: [1, 3, 5], addedAt: null },
+  { id: "d-water", name: "Water", kind: "count", target: 8, unit: "glasses", icon: null, days: null, addedAt: null },
 ];
 
 const NOTES: Record<number, string> = {

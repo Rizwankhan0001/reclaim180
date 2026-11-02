@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, PlusIcon, XIcon } from "@/components/icons";
 import { HABIT_ICONS, HabitIcon } from "@/components/habit-icon";
+import { NumberField } from "@/components/ui/number-field";
 import { HABIT_LIBRARY } from "@/lib/tracker/constants";
 import type { HabitDraft } from "@/lib/tracker/types";
 
@@ -107,7 +108,7 @@ export function HabitEditor({
                       key={k}
                       type="button"
                       aria-pressed={r.kind === k}
-                      className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold ${r.kind === k ? "bg-ink text-surface" : "text-muted hover:text-ink"}`}
+                      className={`rounded-lg px-3 py-2 text-[13px] font-semibold sm:py-1.5 ${r.kind === k ? "bg-ink text-surface" : "text-muted hover:text-ink"}`}
                       onClick={() => update(r.key, { kind: k, target: k === "count" ? Math.max(2, r.target) : 1, unit: k === "count" ? r.unit || "times" : null })}
                     >
                       {k === "check" ? "Yes / no" : "Count"}
@@ -117,14 +118,13 @@ export function HabitEditor({
                 {r.kind === "count" && (
                   <div className="flex items-center gap-2 text-[13.5px]">
                     <span className="text-muted">Goal</span>
-                    <input
-                      type="number"
+                    <NumberField
                       min={1}
                       max={99}
                       aria-label="Daily goal"
                       className="input !w-20 !bg-surface !py-2"
                       value={r.target}
-                      onChange={(e) => update(r.key, { target: Math.max(1, Math.min(99, Math.round(Number(e.target.value) || 1))) })}
+                      onChange={(n) => update(r.key, { target: n })}
                     />
                     <input
                       aria-label="Unit"
@@ -137,13 +137,13 @@ export function HabitEditor({
                   </div>
                 )}
                 <div className="ml-auto flex flex-none items-center gap-1">
-                  <button type="button" className="icon-btn !h-9 !w-9 rotate-90" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                  <button type="button" className="icon-btn !h-10 !w-10 rotate-90 sm:!h-9 sm:!w-9" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
                     <ChevronLeft />
                   </button>
-                  <button type="button" className="icon-btn !h-9 !w-9 rotate-90" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => move(i, 1)}>
+                  <button type="button" className="icon-btn !h-10 !w-10 rotate-90 sm:!h-9 sm:!w-9" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => move(i, 1)}>
                     <ChevronRight />
                   </button>
-                  <button type="button" className="icon-btn !h-9 !w-9" aria-label={`Remove ${r.name || "habit"}`} onClick={() => onChange(rows.filter((x) => x.key !== r.key))}>
+                  <button type="button" className="icon-btn !h-10 !w-10 sm:!h-9 sm:!w-9" aria-label={`Remove ${r.name || "habit"}`} onClick={() => onChange(rows.filter((x) => x.key !== r.key))}>
                     <XIcon />
                   </button>
                 </div>
@@ -153,7 +153,7 @@ export function HabitEditor({
                 <span className="text-[13px] text-muted">Repeat on</span>
                 <button
                   type="button"
-                  className="opt !py-1"
+                  className="opt sm:!py-1"
                   aria-pressed={every}
                   onClick={() => update(r.key, { days: null })}
                 >
@@ -170,7 +170,7 @@ export function HabitEditor({
                         aria-label={DAY_NAMES[d]}
                         aria-pressed={on}
                         onClick={() => toggleDay(r, d)}
-                        className={`grid h-8 w-8 place-items-center rounded-full text-[12px] font-bold transition-colors ${
+                        className={`grid h-10 w-10 place-items-center rounded-full text-[12px] font-bold transition-colors sm:h-8 sm:w-8 ${
                           on && !every ? "bg-accent text-accent-ink" : on ? "bg-accent-soft text-ink" : "border border-line bg-surface text-faint"
                         }`}
                       >

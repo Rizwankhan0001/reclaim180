@@ -3,15 +3,15 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { SettingsView } from "@/components/settings/settings-view";
 import { SiteHeader } from "@/components/site-header";
-import { loadTracker, requireUser } from "@/lib/dal";
+import { hasPasswordAccount, loadTracker, requireUser } from "@/lib/dal";
 
-export const metadata: Metadata = { title: "Settings" };
+export const metadata: Metadata = { title: "Settings", robots: { index: false, follow: false } };
 
 async function SettingsLoader() {
   const user = await requireUser();
-  const data = await loadTracker(user.id);
+  const [data, hasPassword] = await Promise.all([loadTracker(user.id), hasPasswordAccount(user.id)]);
   if (!data) redirect("/onboarding");
-  return <SettingsView initial={data} email={user.email} />;
+  return <SettingsView initial={data} email={user.email} hasPassword={hasPassword} />;
 }
 
 export default function SettingsPage() {

@@ -103,7 +103,7 @@ export function ListEditor({
                 {it}
                 <button
                   type="button"
-                  className="grid h-7 w-7 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink"
+                  className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink"
                   aria-label={`Remove ${it}`}
                   onClick={() => onChange(items.filter((x) => x !== it))}
                 >
@@ -121,7 +121,7 @@ export function ListEditor({
                 {it}
                 <button
                   type="button"
-                  className="grid h-8 w-8 flex-none place-items-center rounded-lg hover:bg-surface/60"
+                  className="grid h-10 w-10 flex-none place-items-center rounded-lg hover:bg-surface/60 sm:h-8 sm:w-8"
                   aria-label={`Remove "${it}"`}
                   onClick={() => onChange(items.filter((x) => x !== it))}
                 >

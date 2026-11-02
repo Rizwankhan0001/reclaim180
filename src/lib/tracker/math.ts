@@ -57,8 +57,28 @@ export function isLogged(log: DayLog | undefined | null): boolean {
   );
 }
 
-/** Whether a habit applies on a given day (habits can be limited to certain weekdays). */
+const addedKeys = new Map<string, string>();
+
+/** Local date key of the day a habit was added, or null if it has been there from the start. */
+export function addedKey(h: Habit): string | null {
+  if (!h.addedAt) return null;
+  let k = addedKeys.get(h.addedAt);
+  if (!k) {
+    k = keyOf(new Date(h.addedAt));
+    addedKeys.set(h.addedAt, k);
+  }
+  return k;
+}
+
+/** True for days before the habit was added. */
+export function addedAfter(h: Habit, dateKey: string): boolean {
+  const k = addedKey(h);
+  return k != null && dateKey < k;
+}
+
+/** Whether a habit applies on a given day (habits can be limited to certain weekdays, and only count from the day they were added). */
 export function isScheduled(h: Habit, dateKey: string): boolean {
+  if (addedAfter(h, dateKey)) return false;
   return !h.days || h.days.length === 0 || h.days.includes(parseKey(dateKey).getDay());
 }
 

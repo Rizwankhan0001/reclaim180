@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { SignOutButton } from "@/components/account-menu";
 import { SiteHeader } from "@/components/site-header";
 import { OnboardingForm } from "@/components/onboarding-form";
 import { hasProfile, requireUser } from "@/lib/dal";
 
-export const metadata: Metadata = { title: "Set up" };
+export const metadata: Metadata = { title: "Set up", robots: { index: false, follow: false } };
 
 async function Gate() {
   const user = await requireUser();
@@ -16,7 +17,9 @@ async function Gate() {
 export default function OnboardingPage() {
   return (
     <>
-      <SiteHeader />
+      <SiteHeader>
+        <SignOutButton />
+      </SiteHeader>
       <main className="wrap flex-1 py-10 md:py-16">
         <Suspense fallback={<div className="card mx-auto h-[520px] w-full max-w-[680px] animate-pulse" aria-label="Loading" />}>
           <Gate />

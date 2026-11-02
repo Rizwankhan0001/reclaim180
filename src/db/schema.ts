@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   datetime,
@@ -89,6 +90,17 @@ export const verification = mysqlTable(
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
+
+/**
+ * Sign-in attempt counters per IP address and endpoint, used by Better Auth to block password guessing.
+ * Kept in the database because serverless functions don't share memory. Old rows are pruned automatically.
+ */
+export const rateLimit = mysqlTable("rate_limit", {
+  id: id().primaryKey(),
+  key: varchar("key", { length: 255 }).notNull().unique(),
+  count: int("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
 
 /* ---------------------------------------------------------------------------
  * Tracker tables

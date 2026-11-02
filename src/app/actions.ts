@@ -58,6 +58,13 @@ function assertNotFuture(iso: string, what: string) {
   if (new Date(iso).getTime() > Date.now() + 60_000) throw new UserError(`${what} can't be in the future.`);
 }
 
+/** Day keys are in the user's time zone, which can be up to 14 hours ahead of UTC. */
+function assertDayNotFuture(dateKey: string) {
+  if (new Date(`${dateKey}T00:00:00Z`).getTime() > Date.now() + 15 * 3_600_000) {
+    throw new UserError("You can't check in for a day that hasn't happened yet.");
+  }
+}
+
 /* ------------------------------------------------------------------------- */
 
 export async function createProfile(input: unknown): Promise<ActionResult> {
@@ -86,6 +93,7 @@ export async function saveDay(input: unknown): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
     const d = dayLogSchema.parse(input);
+    assertDayNotFuture(d.date);
     const values = {
       mood: d.mood,
       energy: d.energy,
@@ -132,6 +140,9 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
     const userId = await requireUserId();
     const data = saveSettingsSchema.parse(input);
     assertNotFuture(data.startAt, "The start");
+
+    const [p] = await db.select({ createdAt: profile.createdAt }).from(profile).where(eq(profile.userId, userId)).limit(1);
+    if (!p) throw new UserError("Set up your tracker first.");
 
     const [first] = await db
       .select({ at: relapse.at })
@@ -192,7 +203,7 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
       .from(habit)
       .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)))
       .orderBy(asc(habit.position), asc(habit.createdAt));
-    return active.map(toHabit);
+    return active.map((h) => toHabit(h, p.createdAt));
   });
 }
 
@@ -219,9 +230,18 @@ const clampScale = (v: unknown) => {
 const isDateKey = (k: string) => /^\d{4}-\d{2}-\d{2}$/.test(k);
 const validIso = (s: string) => !Number.isNaN(new Date(s).getTime());
 
-export async function importBackup(json: string): Promise<ActionResult> {
+/** Parses a backup, turning schema errors into a message that says where the file is broken. */
+function parseBackup<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const r = schema.safeParse(raw);
+  if (r.success) return r.data;
+  const where = r.error.issues[0]?.path.join(".");
+  throw new UserError(`That backup file couldn't be read${where ? ` (problem at "${where}")` : ""}. Make sure it's the file you exported, unchanged.`);
+}
+
+export async function importBackup(input: unknown): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
+    const json = z.string().max(8_000_000, "That file is too big to be a Reclaim 180 backup.").parse(input);
     let raw: unknown;
     try {
       raw = JSON.parse(json);
@@ -255,7 +275,7 @@ export async function importBackup(json: string): Promise<ActionResult> {
     let n: Norm;
 
     if (version === 1) {
-      const b = legacyBackupSchema.parse(raw);
+      const b = parseBackup(legacyBackupSchema, raw);
       if (!validIso(b.profile.startAt)) throw new UserError("The backup's start date isn't valid.");
       n = {
         profile: {
@@ -294,7 +314,7 @@ export async function importBackup(json: string): Promise<ActionResult> {
           .map((r) => ({ at: new Date(r.at), trigger: r.trigger?.slice(0, 40) ?? null, note: r.note?.slice(0, 1000) ?? null })),
       };
     } else if (version === 2) {
-      const b = appBackupSchema.parse(raw);
+      const b = parseBackup(appBackupSchema, raw);
       n = {
         profile: {
           displayName: b.profile.displayName,
@@ -318,6 +338,10 @@ export async function importBackup(json: string): Promise<ActionResult> {
     } else {
       throw new UserError("That file isn't a Reclaim 180 backup.");
     }
+
+    // A hand-edited or merged file can repeat a habit or a day. Keep the first habit and the last day.
+    n.habits = n.habits.filter((h, i, all) => all.findIndex((x) => x.oldId === h.oldId) === i);
+    n.logs = [...new Map(n.logs.map((l) => [l.date, l])).values()];
 
     // New ids for habits; remap each day's values to them.
     const idMap = new Map(n.habits.map((h) => [h.oldId, crypto.randomUUID()]));

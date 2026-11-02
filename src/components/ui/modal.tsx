@@ -20,12 +20,17 @@ export function Modal({
   labelledBy: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  /** Set when this component closes the dialog itself, so that close isn't reported back as the user's. */
+  const selfClosed = useRef(false);
 
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (!open && d.open) {
+      selfClosed.current = true;
+      d.close();
+    }
   }, [open]);
 
   return (
@@ -33,7 +38,15 @@ export function Modal({
       ref={ref}
       className="dialog"
       aria-labelledby={labelledBy}
-      onClose={onClose}
+      onClose={() => {
+        // The browser fires "close" a moment after close(). By then the dialog may have been
+        // opened again, so a close we started ourselves must not call onClose.
+        if (selfClosed.current) {
+          selfClosed.current = false;
+          return;
+        }
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

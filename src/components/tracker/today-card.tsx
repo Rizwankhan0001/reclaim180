@@ -5,7 +5,7 @@ import { CheckIcon, ChevronLeft, ChevronRight } from "@/components/icons";
 import { HabitIcon } from "@/components/habit-icon";
 import { SCALE_WORDS } from "@/lib/tracker/constants";
 import { addDays, daysBetween, fmtLong, fmtShort, keyOf, parseKey } from "@/lib/tracker/dates";
-import { dayScore, emptyLog, habitValue, isScheduled, programStart } from "@/lib/tracker/math";
+import { addedAfter, dayScore, emptyLog, habitValue, isScheduled, programStart } from "@/lib/tracker/math";
 import type { DayLog, Habit, Profile } from "@/lib/tracker/types";
 
 type ScaleKey = "mood" | "energy" | "urge";
@@ -46,7 +46,8 @@ export function TodayCard({ date, todayKey, profile, habits, logs, isResetDay, o
   const isToday = date === todayKey;
   const dayN = daysBetween(start, d) + 1;
   const due = habits.filter((h) => isScheduled(h, date));
-  const notDue = habits.filter((h) => !isScheduled(h, date));
+  // Habits added after this day aren't listed at all; they didn't exist yet.
+  const notDue = habits.filter((h) => !isScheduled(h, date) && !addedAfter(h, date));
   const doneCount = due.filter((h) => habitValue(h, log) >= 1).length;
   const pct = due.length ? doneCount / due.length : 0;
   const show = profile.preferences.checkin;
@@ -249,7 +250,8 @@ function WeekDots({ habit, date, logs }: { habit: Habit; date: Date; logs: Recor
 }
 
 function Counter({ label, name, onDec, onInc, big }: { label: string; name: string; onDec: () => void; onInc: () => void; big?: boolean }) {
-  const btn = `${big ? "h-9 w-9" : "h-7 w-7"} rounded-lg text-base font-bold text-muted hover:bg-surface-2 hover:text-ink`;
+  // Finger-sized on phones, compact on larger screens.
+  const btn = `${big ? "h-11 w-11 sm:h-9 sm:w-9" : "h-10 w-10 sm:h-7 sm:w-7"} rounded-lg text-base font-bold text-muted hover:bg-surface-2 hover:text-ink active:bg-surface-2`;
   return (
     <span className="inline-flex items-center gap-0.5 rounded-[10px] border border-line bg-surface" onClick={(e) => e.stopPropagation()}>
       <button type="button" className={btn} onClick={onDec} aria-label={`Less ${name}`}>
@@ -372,7 +374,7 @@ function WeekStrip({
     <div className="mt-4 flex items-center gap-1 sm:gap-2">
       <button
         type="button"
-        className="icon-btn !h-9 !w-8 flex-none !border-transparent !bg-transparent"
+        className="icon-btn !h-10 !w-9 flex-none !border-transparent !bg-transparent sm:!h-9 sm:!w-8"
         aria-label="Previous week"
         disabled={keyOf(first) <= minKey}
         onClick={() => onPick(prevWeek)}
@@ -426,7 +428,7 @@ function WeekStrip({
       </div>
       <button
         type="button"
-        className="icon-btn !h-9 !w-8 flex-none !border-transparent !bg-transparent"
+        className="icon-btn !h-10 !w-9 flex-none !border-transparent !bg-transparent sm:!h-9 sm:!w-8"
         aria-label="Next week"
         disabled={keyOf(addDays(first, 6)) >= todayKey}
         onClick={() => onPick(nextWeek)}

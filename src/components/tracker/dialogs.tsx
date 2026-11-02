@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useState, useTransition, type FormEvent } from "react";
 import type { ActionResult } from "@/app/actions";
 import { Modal } from "@/components/ui/modal";
 import { useNow } from "@/lib/hooks";
@@ -60,6 +60,12 @@ function SosBody({
 }) {
   const pattern = BREATHING.find((b) => b.key === breathing) ?? BREATHING[0];
   const [openedAt] = useState(() => Date.now());
+  // The orb starts small and grows on the next frame, so the first breath in animates too.
+  const [started, setStarted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setStarted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
   const now = useNow(1000);
   const elapsed = Math.max(0, Math.floor((now - openedAt) / 1000));
 
@@ -78,15 +84,17 @@ function SosBody({
 
   return (
     <div className="grid justify-items-center gap-4 text-center">
-      <div className="relative my-1 grid h-[200px] w-[200px] place-items-center">
+      <div className="relative my-1 grid h-[176px] w-[176px] place-items-center sm:h-[200px] sm:w-[200px]">
         <div className="absolute -inset-1.5 rounded-full border-2 border-dashed border-line" />
-        <div className="orb" data-in={step.big} style={{ transitionDuration: `${step.secs}s` }} />
-        <div className="relative text-white [text-shadow:0_1px_8px_rgb(0_0_0/0.25)]">
-          <b className="block font-display text-[22px] font-bold">{step.word}</b>
-          <small className="num opacity-85">{count}</small>
-        </div>
+        <div className="orb" data-in={started && step.big} style={{ transitionDuration: `${step.secs}s` }} />
+        <b className="num relative text-[32px] font-semibold text-white [text-shadow:0_1px_8px_rgb(0_0_0/0.25)]" aria-hidden="true">
+          {count}
+        </b>
       </div>
-      <p className="text-[12.5px] text-muted">{pattern.label}</p>
+      <div className="-mt-1">
+        <b className="block font-display text-[24px] leading-tight font-bold">{step.word}</b>
+        <p className="text-[12.5px] text-muted">{pattern.label}</p>
+      </div>
       <p className="num text-[13px] text-muted">
         You&apos;ve held on for{" "}
         <b>
@@ -112,7 +120,7 @@ function SosBody({
           </div>
         </div>
       )}
-      <button type="button" className="btn btn-primary" onClick={onWin}>
+      <button type="button" className="btn btn-primary !py-3 max-sm:w-full" onClick={onWin}>
         I got through it
       </button>
     </div>
@@ -214,10 +222,10 @@ function ResetForm({
       </div>
       <ErrorNote error={error} />
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" className="btn" onClick={onClose}>
+        <button type="button" className="btn max-sm:flex-1" onClick={onClose}>
           Cancel
         </button>
-        <button type="submit" className="btn btn-primary" disabled={pending}>
+        <button type="submit" className="btn btn-primary max-sm:flex-1" disabled={pending}>
           {pending ? "Saving…" : "Reset streak"}
         </button>
       </div>

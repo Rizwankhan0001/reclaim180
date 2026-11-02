@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { createProfile, importBackup } from "@/app/actions";
 import { ArrowRightIcon, CheckIcon, ChevronLeft, PlusIcon, XIcon } from "@/components/icons";
 import { HabitIcon } from "@/components/habit-icon";
+import { NumberField } from "@/components/ui/number-field";
 import { HABIT_LIBRARY } from "@/lib/tracker/constants";
 import { DAY_MS } from "@/lib/tracker/dates";
 import type { HabitDraft } from "@/lib/tracker/types";
@@ -36,6 +37,9 @@ const REASON_IDEAS = [
 
 type Pick = HabitDraft & { key: string };
 
+/** Same limit the server enforces. */
+const MAX_HABITS = 20;
+
 export function OnboardingForm({ defaultName }: { defaultName: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -52,18 +56,26 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const full = picked.size >= MAX_HABITS;
+
   function toggleHabit(key: string) {
     setPicked((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
-      else next.add(key);
+      else if (next.size < MAX_HABITS) next.add(key);
       return next;
     });
   }
 
   function addCustom() {
     const n = custom.trim().slice(0, 40);
-    if (!n) return;
+    if (!n || full) return;
+    if (habits.some((h) => h.name.toLowerCase() === n.toLowerCase())) {
+      const existing = habits.find((h) => h.name.toLowerCase() === n.toLowerCase())!;
+      setPicked((prev) => new Set(prev).add(existing.key));
+      setCustom("");
+      return;
+    }
     const key = `custom-${habits.length}`;
     setHabits((hs) => [...hs, { key, name: n, kind: "check", target: 1, unit: null }]);
     setPicked((prev) => new Set(prev).add(key));
@@ -149,16 +161,14 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
                     <button type="button" className="h-11 w-11 text-xl font-bold text-muted hover:text-ink" aria-label="One day less" onClick={() => setDaysClean((d) => Math.max(0, d - 1))}>
                       −
                     </button>
-                    <input
+                    <NumberField
                       id="daysClean"
-                      type="number"
                       min={0}
                       max={999}
-                      inputMode="numeric"
                       aria-label="Days clean"
                       className="num w-16 bg-transparent text-center text-xl font-semibold outline-none"
                       value={daysClean}
-                      onChange={(e) => setDaysClean(Math.max(0, Math.min(999, Math.round(Number(e.target.value) || 0))))}
+                      onChange={setDaysClean}
                     />
                     <button type="button" className="h-11 w-11 text-xl font-bold text-muted hover:text-ink" aria-label="One day more" onClick={() => setDaysClean((d) => Math.min(999, d + 1))}>
                       +
@@ -213,8 +223,9 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
                       key={h.key}
                       type="button"
                       aria-pressed={on}
+                      disabled={!on && full}
                       onClick={() => toggleHabit(h.key)}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left text-[14px] font-semibold transition-colors ${
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left text-[14px] font-semibold transition-colors disabled:opacity-50 ${
                         on ? "done border-heat-3/50 bg-[color-mix(in_oklab,var(--heat-3)_12%,var(--surface))]" : "border-line bg-surface-2 hover:border-faint"
                       }`}
                     >
@@ -242,12 +253,13 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
                     }
                   }}
                 />
-                <button type="button" className="btn" onClick={addCustom} disabled={!custom.trim()}>
+                <button type="button" className="btn" onClick={addCustom} disabled={!custom.trim() || full}>
                   <PlusIcon /> Add
                 </button>
               </div>
               <span className="text-[13px] text-muted">
                 <b className="num text-ink">{picked.size}</b> selected
+                {full && ` · That's the most you can pick (${MAX_HABITS}).`}
               </span>
             </div>
           )}
@@ -294,7 +306,7 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
                   {reasons.map((r) => (
                     <li key={r} className="flex items-center justify-between gap-2 rounded-xl bg-accent-soft py-2 pr-2 pl-3.5 text-[14.5px] font-semibold">
                       {r}
-                      <button type="button" className="grid h-7 w-7 flex-none place-items-center rounded-lg hover:bg-surface/60" aria-label={`Remove "${r}"`} onClick={() => setReasons((rs) => rs.filter((x) => x !== r))}>
+                      <button type="button" className="grid h-9 w-9 flex-none place-items-center rounded-lg hover:bg-surface/60" aria-label={`Remove "${r}"`} onClick={() => setReasons((rs) => rs.filter((x) => x !== r))}>
                         <XIcon className="h-4 w-4" />
                       </button>
                     </li>

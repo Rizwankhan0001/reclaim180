@@ -37,7 +37,17 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <div className="lg:hidden">
           <SiteHeader />
         </div>
-        <main className="wrap flex flex-1 items-center justify-center py-10">{children}</main>
+        <main className="wrap flex flex-1 flex-col items-center justify-center gap-4 py-10">
+          {children}
+          <nav className="flex gap-5 text-[12.5px] text-muted" aria-label="Legal">
+            <Link href="/privacy" className="py-2 hover:text-ink">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="py-2 hover:text-ink">
+              Terms
+            </Link>
+          </nav>
+        </main>
       </div>
     </div>
   );

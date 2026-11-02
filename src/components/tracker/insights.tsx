@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BoltIcon, CircleCheckIcon, FlameIcon, InfoIcon, TrophyIcon } from "@/components/icons";
 import { SCALE_WORDS, TRIGGER_TIPS } from "@/lib/tracker/constants";
 import { addDays, daysBetween, fmtLong, fmtShort, keyOf, parseKey } from "@/lib/tracker/dates";
@@ -167,7 +167,10 @@ export function HeatmapCard({
   }, []);
   const goal = profile.goalDays;
   const start = programStart(profile);
-  const end = addDays(start, goal - 1);
+  const goalEnd = addDays(start, goal - 1);
+  // Past the goal, the map keeps growing so today is always on it.
+  const pastGoal = today > goalEnd;
+  const end = pastGoal ? today : goalEnd;
   const weekStart = profile.preferences.weekStart;
   const offset = (start.getDay() - weekStart + 7) % 7;
   const gridStart = addDays(start, -offset);
@@ -231,7 +234,7 @@ export function HeatmapCard({
   return (
     <section id="progress" className="card scroll-mt-20" aria-labelledby="progTitle">
       <CardHead
-        eyebrow={`Your ${goal}-day map`}
+        eyebrow={pastGoal ? `Your map · ${goal}-day goal reached` : `Your ${goal}-day map`}
         title={`${fmtShort(start)} to ${fmtShort(end)}`}
         id="progTitle"
         sub="Each square is one day. The darker it is, the more habits you did. Tap a day to open it."
@@ -568,7 +571,8 @@ export function JournalCard({
     ...relapses.map((r): Item => ({ k: keyOf(new Date(r.at)), reset: r })),
   ];
   items.sort((a, b) => (a.k < b.k ? 1 : a.k > b.k ? -1 : a.reset ? -1 : 1));
-  const shown = items.slice(0, 30);
+  const [limit, setLimit] = useState(30);
+  const shown = items.slice(0, limit);
 
   return (
     <section id="journal" className="card scroll-mt-20" aria-labelledby="journalTitle">
@@ -603,7 +607,7 @@ export function JournalCard({
                           </span>
                         )}
                         {it.log?.urge ? <span className="tag">Urges: {SCALE_WORDS.urge[it.log.urge - 1]}</span> : null}
-                        <button type="button" className="-my-1.5 ml-auto rounded-lg px-2 py-1.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft" onClick={() => onOpen(it.k)}>
+                        <button type="button" className="-my-2.5 ml-auto rounded-lg px-2.5 py-2.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft sm:-my-1.5 sm:px-2 sm:py-1.5" onClick={() => onOpen(it.k)}>
                           Open day
                         </button>
                       </>
@@ -616,6 +620,13 @@ export function JournalCard({
               </li>
             );
           })}
+          {items.length > shown.length && (
+            <li className="text-center">
+              <button type="button" className="btn" onClick={() => setLimit((n) => n + 30)}>
+                Show older entries ({items.length - shown.length} more)
+              </button>
+            </li>
+          )}
         </ul>
       ) : (
         <div className="empty">No notes yet. A line a day adds up to a clear record of what works for you.</div>

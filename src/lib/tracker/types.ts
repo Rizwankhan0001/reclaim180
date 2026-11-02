@@ -13,6 +13,11 @@ export type Habit = {
   icon: string | null;
   /** Weekdays the habit applies to (0 = Sunday … 6 = Saturday), or null for every day. */
   days: number[] | null;
+  /**
+   * ISO time the habit was added, for habits added after setup. Days before it don't count
+   * the habit, so adding one later doesn't lower older scores. Null = part of the program from the start.
+   */
+  addedAt: string | null;
 };
 
 export type Profile = {

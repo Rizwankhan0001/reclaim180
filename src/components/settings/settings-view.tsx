@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import { deleteRelapse, eraseAll, importBackup, saveSettings } from "@/app/actions";
-import { ChevronLeft, DownloadIcon, XIcon } from "@/components/icons";
+import { ChevronLeft, DownloadIcon, LogOutIcon, XIcon } from "@/components/icons";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeApplier } from "@/components/theme-applier";
+import { Modal } from "@/components/ui/modal";
+import { NumberField } from "@/components/ui/number-field";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { authClient } from "@/lib/auth-client";
 import { useIsClient } from "@/lib/hooks";
+import { forgetLocalData, rememberLook } from "@/lib/look";
+import { isSigningOut, signOutAndLeave } from "@/lib/sign-out";
+import { AccountMenu } from "@/components/account-menu";
 import { GOAL_OPTIONS, SOS_ACTIONS, TRIGGERS } from "@/lib/tracker/constants";
 import { fromLocalInput, toLocalInput } from "@/lib/tracker/dates";
 import { milestones } from "@/lib/tracker/math";
@@ -60,7 +65,14 @@ function toDraft(d: TrackerData): Draft {
   };
 }
 
-export function SettingsView(props: { initial: TrackerData; email: string }) {
+type ViewProps = {
+  initial: TrackerData;
+  email: string;
+  /** False for Google-only accounts, which confirm account deletion by a recent sign-in instead of a password. */
+  hasPassword: boolean;
+};
+
+export function SettingsView(props: ViewProps) {
   return (
     <ToastProvider>
       <SettingsInner {...props} />
@@ -68,7 +80,7 @@ export function SettingsView(props: { initial: TrackerData; email: string }) {
   );
 }
 
-function SettingsInner({ initial, email }: { initial: TrackerData; email: string }) {
+function SettingsInner(props: ViewProps) {
   const isClient = useIsClient();
   if (!isClient) {
     return (
@@ -80,10 +92,10 @@ function SettingsInner({ initial, email }: { initial: TrackerData; email: string
       </>
     );
   }
-  return <SettingsForm initial={initial} email={email} />;
+  return <SettingsForm {...props} />;
 }
 
-function SettingsForm({ initial, email }: { initial: TrackerData; email: string }) {
+function SettingsForm({ initial, email, hasPassword }: ViewProps) {
   const router = useRouter();
   const toast = useToast();
   const [saved, setSaved] = useState<Draft>(() => toDraft(initial));
@@ -91,18 +103,38 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
   const [relapses, setRelapses] = useState<Relapse[]>(initial.relapses);
   const [error, setError] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved]);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const setPref = <K extends keyof Preferences>(k: K, v: Preferences[K]) => setDraft((d) => ({ ...d, prefs: { ...d.prefs, [k]: v } }));
 
-  // Warn before leaving with unsaved changes.
+  // Warn before leaving with unsaved changes: closing the tab, and following a link inside the app
+  // (in-app links don't fire beforeunload, so those are caught before the router sees the click).
   useEffect(() => {
     if (!dirty) return;
-    const h = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", h);
-    return () => window.removeEventListener("beforeunload", h);
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (!isSigningOut()) e.preventDefault();
+    };
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
+      if (!a) return;
+      const href = a.getAttribute("href") ?? "";
+      if (href.startsWith("#") || a.hasAttribute("download") || a.getAttribute("target") === "_blank") return;
+      if (!window.confirm("You have unsaved changes. Leave without saving them?")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("click", onClick, true);
+    };
   }, [dirty]);
 
   const goalIsPreset = GOAL_OPTIONS.some((g) => g.days === draft.goalDays);
@@ -142,17 +174,19 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
       };
       setSaved(next);
       setDraft(next);
+      rememberLook(next.prefs.theme, next.prefs.accent);
       toast("Settings saved.");
       router.refresh();
     });
   }
 
-  function onImport(file: File | undefined) {
-    if (!file) return;
+  function onImport(file: File) {
     setError(null);
     startTransition(async () => {
       const res = await importBackup(await file.text());
+      setImportFile(null);
       if (!res.ok) return setError(res.error);
+      forgetLocalData();
       window.location.reload();
     });
   }
@@ -166,6 +200,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
     startTransition(async () => {
       const res = await eraseAll();
       if (!res.ok) return setError(res.error);
+      forgetLocalData();
       router.replace("/onboarding");
       router.refresh();
     });
@@ -180,10 +215,13 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
     });
   }
 
+  /** Signing out with unsaved changes asks first. */
+  const confirmSignOut = () => !dirty || window.confirm("You have unsaved changes. Sign out without saving them?");
+
   async function onSignOut() {
-    await authClient.signOut();
-    router.replace("/");
-    router.refresh();
+    if (!confirmSignOut()) return;
+    const err = await signOutAndLeave();
+    if (err) toast(err);
   }
 
   return (
@@ -193,6 +231,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
         <Link href="/dashboard" className="btn btn-quiet !px-2.5 !py-2">
           <ChevronLeft /> Dashboard
         </Link>
+        <AccountMenu name={saved.displayName} email={email} onSettingsPage confirmSignOut={confirmSignOut} />
       </SiteHeader>
 
       <div className="wrap grid grid-cols-[minmax(0,1fr)] gap-6 pt-6 pb-32 sm:pt-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8">
@@ -238,14 +277,13 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
                 ))}
                 <span className="ml-2 inline-flex items-center gap-2 text-[13.5px] text-muted">
                   or
-                  <input
-                    type="number"
+                  <NumberField
                     min={7}
                     max={1000}
                     aria-label="Custom goal in days"
                     className={`input !w-24 !py-1.5 ${goalIsPreset ? "" : "!border-accent"}`}
                     value={draft.goalDays}
-                    onChange={(e) => set("goalDays", Math.max(7, Math.min(1000, Math.round(Number(e.target.value) || 7))))}
+                    onChange={(n) => set("goalDays", n)}
                   />
                   days
                 </span>
@@ -439,7 +477,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
             <div className="field">
               <div className="flex items-center justify-between">
                 <span className="lbl">Quick actions</span>
-                <button type="button" className="-my-1 rounded-lg px-2 py-1.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft" onClick={() => setPref("sosActions", [...SOS_ACTIONS])}>
+                <button type="button" className="-my-2 rounded-lg px-2.5 py-2.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft sm:-my-1 sm:px-2 sm:py-1.5" onClick={() => setPref("sosActions", [...SOS_ACTIONS])}>
                   Restore defaults
                 </button>
               </div>
@@ -459,7 +497,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
             <div className="field">
               <div className="flex items-center justify-between">
                 <span className="lbl">Triggers</span>
-                <button type="button" className="-my-1 rounded-lg px-2 py-1.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft" onClick={() => setPref("triggers", [...TRIGGERS])}>
+                <button type="button" className="-my-2 rounded-lg px-2.5 py-2.5 text-[12.5px] font-semibold text-accent hover:bg-accent-soft sm:-my-1 sm:px-2 sm:py-1.5" onClick={() => setPref("triggers", [...TRIGGERS])}>
                   Restore defaults
                 </button>
               </div>
@@ -484,7 +522,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
                         {new Date(r.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
                         {r.trigger && <span className="text-muted"> · {r.trigger}</span>}
                       </span>
-                      <button type="button" className="icon-btn !h-8 !w-8" aria-label="Delete this reset" disabled={pending} onClick={() => onRemoveReset(r.id)}>
+                      <button type="button" className="icon-btn !h-10 !w-10 sm:!h-8 sm:!w-8" aria-label="Delete this reset" disabled={pending} onClick={() => onRemoveReset(r.id)}>
                         <XIcon />
                       </button>
                     </li>
@@ -503,13 +541,30 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
               </a>
               <label className="btn cursor-pointer">
                 Import backup
-                <input type="file" accept="application/json,.json" className="sr-only" disabled={pending} onChange={(e) => onImport(e.target.files?.[0])} />
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="sr-only"
+                  disabled={pending}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    // Clear the input so picking the same file again (after a failed import) still fires.
+                    e.target.value = "";
+                    if (f) setImportFile(f);
+                  }}
+                />
               </label>
               <button type="button" className="btn btn-quiet" onClick={onSignOut}>
-                Sign out
+                <LogOutIcon /> Sign out
               </button>
             </div>
-            <p className="hint -mt-2">Importing replaces everything currently in your tracker.</p>
+            <p className="hint -mt-2">
+              Importing replaces everything currently in your tracker. How your data is handled:{" "}
+              <Link href="/privacy" className="font-semibold text-accent">
+                Privacy Policy
+              </Link>
+              .
+            </p>
             <div className="grid gap-2 rounded-2xl border border-bad/30 bg-bad/[0.04] p-4">
               <b className="text-[14.5px]">Erase all tracker data</b>
               <span className="text-[13px] text-muted">Deletes your habits, check-ins, resets and settings. Your account stays so you can start again.</span>
@@ -519,9 +574,42 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
                 </button>
               </div>
             </div>
+            <div className="grid gap-2 rounded-2xl border border-bad/30 bg-bad/[0.04] p-4">
+              <b className="text-[14.5px]">Delete account</b>
+              <span className="text-[13px] text-muted">
+                Permanently deletes your account and everything in it. You can&apos;t undo this. Export a backup first if you might want your data later.
+              </span>
+              <div>
+                <button type="button" className="btn btn-danger" disabled={pending} onClick={() => setDeleting(true)}>
+                  Delete my account
+                </button>
+              </div>
+            </div>
           </Section>
         </div>
       </div>
+
+      <Modal
+        open={importFile != null}
+        onClose={() => !pending && setImportFile(null)}
+        labelledBy="importTitle"
+        title="Replace your tracker?"
+        description="Importing replaces everything in your tracker with the backup: habits, check-ins, resets and settings."
+      >
+        <p className="rounded-xl bg-surface-2 px-3.5 py-2.5 text-[13.5px] [overflow-wrap:anywhere]">
+          File: <b>{importFile?.name}</b>
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" className="btn max-sm:flex-1" disabled={pending} onClick={() => setImportFile(null)}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary max-sm:flex-1" disabled={pending} onClick={() => importFile && onImport(importFile)}>
+            {pending ? "Importing…" : "Replace my data"}
+          </button>
+        </div>
+      </Modal>
+
+      <DeleteAccountDialog open={deleting} onClose={() => setDeleting(false)} hasPassword={hasPassword} />
 
       {/* save bar */}
       <div
@@ -530,6 +618,7 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
         }`}
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-hidden={!dirty && !error}
+        inert={!dirty && !error}
       >
         <div className="wrap flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3">
           <span className={`text-[14px] font-medium ${error ? "text-bad" : "text-muted"}`} role={error ? "alert" : undefined}>
@@ -554,5 +643,74 @@ function SettingsForm({ initial, email }: { initial: TrackerData; email: string 
         </div>
       </div>
     </>
+  );
+}
+
+/** Confirms with the password (or a recent sign-in for Google-only accounts), then deletes the account. */
+function DeleteAccountDialog({ open, onClose, hasPassword }: { open: boolean; onClose: () => void; hasPassword: boolean }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy="deleteTitle"
+      title="Delete your account?"
+      description="Your account, habits, check-ins, resets and settings are deleted for good."
+    >
+      <DeleteAccountForm hasPassword={hasPassword} onClose={onClose} />
+    </Modal>
+  );
+}
+
+function DeleteAccountForm({ hasPassword, onClose }: { hasPassword: boolean; onClose: () => void }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const password = String(new FormData(e.currentTarget).get("password") ?? "");
+    startTransition(async () => {
+      const res = await authClient.deleteUser(hasPassword ? { password } : {});
+      if (res.error) {
+        const code = res.error.code;
+        return setError(
+          code === "INVALID_PASSWORD"
+            ? "That password isn't right."
+            : code === "SESSION_EXPIRED"
+              ? "For your safety, sign out and sign in again, then delete your account within a day."
+              : res.error.message || "Couldn't delete your account. Try again.",
+        );
+      }
+      forgetLocalData();
+      router.replace("/");
+      router.refresh();
+    });
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="grid gap-4">
+      {hasPassword ? (
+        <div className="field">
+          <label htmlFor="deletePassword">Enter your password to confirm</label>
+          <input id="deletePassword" name="password" type="password" required autoComplete="current-password" className="input" />
+        </div>
+      ) : (
+        <p className="text-[13.5px] text-muted">You signed in with Google. This works if you signed in within the last day.</p>
+      )}
+      {error && (
+        <p role="alert" className="rounded-lg bg-bad/10 px-3 py-2 text-sm font-medium text-bad">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" className="btn max-sm:flex-1" onClick={onClose} disabled={pending}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn-danger armed max-sm:flex-1" disabled={pending}>
+          {pending ? "Deleting…" : "Delete forever"}
+        </button>
+      </div>
+    </form>
   );
 }

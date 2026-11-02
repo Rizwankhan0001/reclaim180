@@ -217,6 +217,13 @@ html {
 button:disabled {
   cursor: default;
 }
+/* Phones: no grey flash on tap (buttons have their own pressed styles). */
+button,
+a,
+summary,
+label {
+  -webkit-tap-highlight-color: transparent;
+}
 
 @layer components {
   .wrap {
@@ -557,6 +564,34 @@ button:disabled {
   .dialog[open] {
     animation: rise 0.22s ease;
   }
+  /* Keep the page behind an open dialog from scrolling (most noticeable on phones). */
+  html:has(.dialog[open]) {
+    overflow: hidden;
+  }
+  /* Phones: dialogs become bottom sheets, within reach of the thumb. */
+  @media (max-width: 640px) {
+    .dialog {
+      width: 100%;
+      max-width: 100%;
+      margin: auto 0 0;
+      border-radius: 22px 22px 0 0;
+      max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .dialog[open] {
+      animation: sheet-up 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    /* grab handle */
+    .dialog::before {
+      content: "";
+      display: block;
+      width: 40px;
+      height: 5px;
+      margin: 8px auto 0;
+      border-radius: 99px;
+      background: var(--line);
+    }
+  }
 
   /* breathing orb */
   .orb {
@@ -684,6 +719,34 @@ button:disabled {
     transition: transform 0.2s ease;
   }
 
+  /* Privacy policy and terms */
+  .legal h2 {
+    margin-top: 2.2em;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .legal p,
+  .legal li {
+    margin-top: 0.75em;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+  .legal ul {
+    padding-left: 1.2em;
+    list-style: disc;
+  }
+  .legal li::marker {
+    color: var(--faint);
+  }
+  .legal b {
+    color: var(--ink);
+  }
+  .legal a {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
   /* Mobile bottom navigation */
   .bottom-nav {
     position: fixed;
@@ -737,6 +800,11 @@ button:disabled {
   }
 }
 
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
 @keyframes rise {
   from {
     opacity: 0;
@@ -763,5 +831,24 @@ button:disabled {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Phones and other touch screens: bigger targets for fingers (about 40px), and day squares big
+   enough to tap. Kept last so it wins over the sizes above. */
+@media (pointer: coarse), (max-width: 640px) {
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .opt {
+    padding: 9px 14px;
+  }
+  .heat-wrap .heat {
+    --cell: clamp(20px, calc((100cqw - 32px) / var(--weeks) - 4px), 26px);
+  }
+  /* While typing, the keyboard needs the room more than the bottom navigation does. */
+  html:has(input:focus, textarea:focus) .bottom-nav {
+    display: none;
   }
 }

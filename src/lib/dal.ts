@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { dayLog, habit, profile, relapse } from "@/db/schema";
+import { account, dayLog, habit, profile, relapse } from "@/db/schema";
 import { auth } from "./auth";
 import { normalizePreferences } from "./tracker/preferences";
 import type { DayLog, Habit, TrackerData } from "./tracker/types";
@@ -31,7 +31,15 @@ export async function hasProfile(userId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-export function toHabit(row: typeof habit.$inferSelect): Habit {
+/** Habits created within this long of setup belong to the original program. */
+const SETUP_GRACE_MS = 10 * 60_000;
+
+/**
+ * `setupAt` is when the profile was created. Habits added later only count from the day
+ * they were added, so a new habit doesn't lower the scores of days before it existed.
+ */
+export function toHabit(row: typeof habit.$inferSelect, setupAt?: Date): Habit {
+  const addedLater = setupAt != null && row.createdAt.getTime() - setupAt.getTime() > SETUP_GRACE_MS;
   return {
     id: row.id,
     name: row.name,
@@ -41,7 +49,18 @@ export function toHabit(row: typeof habit.$inferSelect): Habit {
     position: row.position,
     icon: row.icon ?? null,
     days: Array.isArray(row.days) && row.days.length > 0 && row.days.length < 7 ? row.days : null,
+    addedAt: addedLater ? row.createdAt.toISOString() : null,
   };
+}
+
+/** Whether the user can sign in with a password (as opposed to Google only). */
+export async function hasPasswordAccount(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: account.id })
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, "credential")))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export function toDayLog(row: typeof dayLog.$inferSelect): DayLog {
@@ -78,7 +97,7 @@ export async function loadTracker(userId: string): Promise<TrackerData | null> {
       reasons: p.reasons ?? [],
       preferences: normalizePreferences(p.preferences),
     },
-    habits: habits.map(toHabit),
+    habits: habits.map((h) => toHabit(h, p.createdAt)),
     logs: Object.fromEntries(logs.map((l) => [l.date, toDayLog(l)])),
     relapses: relapses.map((r) => ({ id: r.id, at: r.at.toISOString(), trigger: r.trigger, note: r.note })),
   };
