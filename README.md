@@ -8,7 +8,7 @@ A private 6-month NoFap and habit tracker: a live streak clock, daily habit chec
 | --- | --- |
 | Framework | Next.js 16 (App Router, Cache Components, Turbopack), React 19, TypeScript |
 | Styling | Tailwind CSS v4 with design tokens in `src/app/globals.css` (light and dark) |
-| Database | MySQL / TiDB Cloud via `mysql2` |
+| Database | Netlify Database (managed Postgres) via `@netlify/database` |
 | ORM and migrations | Drizzle ORM + drizzle-kit |
 | Auth | Better Auth (email and password; Google optional) |
 | Validation | Zod on every server action |
@@ -30,15 +30,15 @@ src/
   components/
     tracker/                 Dashboard UI (hero, today card, insights, dialogs)
     ui/                      Modal, toast
-  db/
-    schema.ts                All tables (auth + tracker)
-    index.ts                 Drizzle client
   lib/
     auth.ts, auth-client.ts  Better Auth server and client
     dal.ts                   Data access layer (session + queries, server only)
     validation.ts            Zod schemas
     tracker/                 Pure logic: dates, streak math, constants, types
-drizzle/                     SQL migrations (commit these)
+db/
+  schema.ts                  All tables (auth + tracker)
+  index.ts                   Drizzle client (Netlify Database adapter)
+netlify/database/migrations/ SQL migrations (commit these)
 ```
 
 ## Database
@@ -51,28 +51,24 @@ Tables: `user`, `session`, `account`, `verification` (auth), plus `profile`, `ha
 
 ### Changing the schema
 
-1. Edit `src/db/schema.ts`.
-2. `npm run db:generate` creates a new SQL file in `drizzle/`.
-3. `npm run db:migrate` applies it to the database in `DATABASE_URL`.
-4. Commit the schema change and the migration together.
+1. Edit `db/schema.ts`.
+2. `npm run db:generate -- --name describe_the_change` creates a new migration in `netlify/database/migrations/`.
+3. Commit the schema change and the migration together. Netlify applies pending migrations automatically on deploy (deploy previews get their own database branch).
 
-`npm run db:studio` opens a browser UI to view and edit data.
+Never edit a migration that has already been deployed; add a new one instead.
 
 ## Local development
 
 ```bash
-cp .env.example .env.local   # then fill in DATABASE_URL and BETTER_AUTH_SECRET
+cp .env.example .env.local   # then fill in BETTER_AUTH_SECRET
 npm install
-npm run db:migrate
-npm run dev
+netlify dev                  # provides a local Netlify Database
 ```
-
-Use a separate database for development so you never test against production data.
 
 ## Deploying on Netlify
 
-1. Under Site configuration → Environment variables, add `DATABASE_URL` (your MySQL / TiDB connection string) and `BETTER_AUTH_SECRET`. Make sure both are available to the **Builds** and **Functions** scopes.
-2. Every build runs pending migrations from `drizzle/` before `next build` (skipped with a warning if `DATABASE_URL` is missing).
+1. Under Site configuration → Environment variables, add `BETTER_AUTH_SECRET`. No database connection string is needed: Netlify Database is provisioned automatically.
+2. Migrations in `netlify/database/migrations/` are applied automatically before each deploy is published.
 3. Every push to `main` deploys.
 
 Optional: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to turn on Google sign-in. The redirect URI is `https://YOUR_DOMAIN/api/auth/callback/google`.

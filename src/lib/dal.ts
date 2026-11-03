@@ -3,8 +3,8 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
-import { db } from "@/db";
-import { dayLog, habit, profile, relapse } from "@/db/schema";
+import { db } from "../../db";
+import { dayLog, habit, profile, relapse } from "../../db/schema";
 import { auth } from "./auth";
 import type { DayLog, Habit, TrackerData } from "./tracker/types";
 

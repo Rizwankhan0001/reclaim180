@@ -1,8 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { db } from "../db";
-import * as schema from "../db/schema";
+import { db } from "../../db";
+import * as schema from "../../db/schema";
 
 const vercelUrl = (host?: string) => (host ? `https://${host}` : undefined);
 
@@ -10,9 +10,11 @@ const vercelUrl = (host?: string) => (host ? `https://${host}` : undefined);
 // are the addresses of the current deploy (previews and branch deploys).
 const netlifyUrl = process.env.CONTEXT === "production" ? process.env.URL : process.env.DEPLOY_PRIME_URL;
 
+// On Netlify, prefer the current deploy's own URL so deploy previews sign in on
+// their own domain instead of redirecting to production.
 const baseURL =
-  process.env.BETTER_AUTH_URL ??
   netlifyUrl ??
+  process.env.BETTER_AUTH_URL ??
   vercelUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ??
   "http://localhost:3000";
 
@@ -28,7 +30,7 @@ export const auth = betterAuth({
     vercelUrl(process.env.VERCEL_URL),
     vercelUrl(process.env.VERCEL_BRANCH_URL),
   ].filter((o): o is string => Boolean(o)),
-  database: drizzleAdapter(db, { provider: "mysql", schema }),
+  database: drizzleAdapter(db, { provider: "pg", schema }),
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,

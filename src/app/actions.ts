@@ -2,8 +2,8 @@
 
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
-import { dayLog, habit, profile, relapse } from "@/db/schema";
+import { db } from "../../db";
+import { dayLog, habit, profile, relapse } from "../../db/schema";
 import { hasProfile, requireUserId, toHabit } from "@/lib/dal";
 import type { Habit, Relapse } from "@/lib/tracker/types";
 import {
@@ -94,7 +94,7 @@ export async function saveDay(input: unknown): Promise<ActionResult> {
     await db
       .insert(dayLog)
       .values({ userId, date: d.date, ...values })
-      .onDuplicateKeyUpdate({ set: { ...values, updatedAt: new Date() } });
+      .onConflictDoUpdate({ target: [dayLog.userId, dayLog.date], set: { ...values, updatedAt: new Date() } });
     return null;
   });
 }
