@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/migrate.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -13,9 +13,9 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.2.0",
     "better-auth": "^1.7.13",
     "drizzle-orm": "^0.45.4",
+    "mysql2": "^3.24.6",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
