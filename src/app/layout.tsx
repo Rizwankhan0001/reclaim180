@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { InlineScript } from "@/components/inline-script";
-import { installScript, lookScript } from "@/lib/look";
+import { headCleanupScript, installScript, lookScript } from "@/lib/look";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({ variable: "--font-bricolage", subsets: ["latin"] });
@@ -37,7 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     // The inline script may set data-theme / data-accent before React loads, so <html> can differ from the server render.
     <html lang="en" className={`${bricolage.variable} ${instrument.variable} ${jetbrains.variable} h-full`} suppressHydrationWarning>
       <head>
-        <InlineScript html={`${lookScript};${installScript}`} />
+        <InlineScript html={`${headCleanupScript};${lookScript};${installScript}`} />
       </head>
       <body className="flex min-h-full flex-col">{children}</body>
     </html>

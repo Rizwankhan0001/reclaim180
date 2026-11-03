@@ -17,6 +17,15 @@ export const lookScript = `(function(){try{if(!new RegExp(${JSON.stringify(APP_P
  */
 export const installScript = `window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__r180Install=e;window.dispatchEvent(new Event("r180-installable"))})`;
 
+/**
+ * Some hosts add things to <head> that React didn't render. Netlify's free plan inserts
+ * " <!-- This site is hosted on Netlify… -->" right after <meta charset>; the stray space makes
+ * React's hydration fail on every page, so it throws the server HTML away and redraws it.
+ * This removes whitespace-only text and HTML comments from <head> (React renders neither there)
+ * before React loads. It runs from <head>, after the inserted nodes already exist.
+ */
+export const headCleanupScript = `(function(){try{var h=document.head,n=h.firstChild,x;while(n){x=n.nextSibling;if((n.nodeType===3&&!/\\S/.test(n.nodeValue))||n.nodeType===8)h.removeChild(n);n=x}}catch(e){}})()`;
+
 export function rememberLook(theme: string, accent: string) {
   try {
     localStorage.setItem(LOOK_KEY, JSON.stringify({ theme, accent }));
