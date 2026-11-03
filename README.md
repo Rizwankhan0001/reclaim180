@@ -8,11 +8,11 @@ A private 6-month NoFap and habit tracker: a live streak clock, daily habit chec
 | --- | --- |
 | Framework | Next.js 16 (App Router, Cache Components, Turbopack), React 19, TypeScript |
 | Styling | Tailwind CSS v4 with design tokens in `src/app/globals.css` (light and dark) |
-| Database | Neon Postgres via `@neondatabase/serverless` (HTTP driver) |
+| Database | MySQL / TiDB Cloud via `mysql2` |
 | ORM and migrations | Drizzle ORM + drizzle-kit |
 | Auth | Better Auth (email and password; Google optional) |
 | Validation | Zod on every server action |
-| Hosting | Vercel |
+| Hosting | Netlify |
 
 ## Project layout
 
@@ -67,14 +67,13 @@ npm run db:migrate
 npm run dev
 ```
 
-Use a separate Neon branch for development so you never test against production data.
+Use a separate database for development so you never test against production data.
 
-## Deploying on Vercel
+## Deploying on Netlify
 
-1. Import the GitHub repo in Vercel.
-2. Add `DATABASE_URL` and `BETTER_AUTH_SECRET` under Project Settings, then Environment Variables. If Neon is connected through the Vercel integration, `DATABASE_URL` is added for you.
-3. Run `npm run db:migrate` against the production database once, and again after each schema change.
-4. Every push to `main` deploys.
+1. Under Site configuration → Environment variables, add `DATABASE_URL` (your MySQL / TiDB connection string) and `BETTER_AUTH_SECRET`. Make sure both are available to the **Builds** and **Functions** scopes.
+2. Every build runs pending migrations from `drizzle/` before `next build` (skipped with a warning if `DATABASE_URL` is missing).
+3. Every push to `main` deploys.
 
 Optional: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to turn on Google sign-in. The redirect URI is `https://YOUR_DOMAIN/api/auth/callback/google`.
 
