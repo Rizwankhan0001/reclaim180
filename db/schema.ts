@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   index,
@@ -69,6 +70,13 @@ export const account = pgTable(
   (t) => [index("account_user_id_idx").on(t.userId)],
 );
 
+export const rateLimit = pgTable("rate_limit", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+
 export const verification = pgTable(
   "verification",
   {
@@ -96,6 +104,7 @@ export const profile = pgTable("profile", {
   startAt: ts("start_at").notNull(),
   goalDays: integer("goal_days").notNull().default(182),
   reasons: jsonb("reasons").$type<string[]>().notNull().default([]),
+  preferences: jsonb("preferences").$type<Record<string, unknown>>(),
   createdAt: ts("created_at").defaultNow().notNull(),
   updatedAt: ts("updated_at").defaultNow().$onUpdate(now).notNull(),
 });
@@ -113,6 +122,8 @@ export const habit = pgTable(
     target: integer("target").notNull().default(1),
     unit: varchar("unit", { length: 50 }),
     position: integer("position").notNull().default(0),
+    icon: varchar("icon", { length: 24 }),
+    days: jsonb("days").$type<number[]>(),
     archivedAt: ts("archived_at"),
     createdAt: ts("created_at").defaultNow().notNull(),
   },
