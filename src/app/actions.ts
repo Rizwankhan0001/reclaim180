@@ -1,11 +1,10 @@
 "use server";
 
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
-import { dayLog, habit, profile, relapse } from "@/db/schema";
+import { db } from "../../db";
+import { dayLog, habit, profile, relapse } from "../../db/schema";
 import { hasProfile, requireUserId, toHabit } from "@/lib/dal";
-import { normalizePreferences } from "@/lib/tracker/preferences";
 import type { Habit, Relapse } from "@/lib/tracker/types";
 import {
   appBackupSchema,
@@ -33,36 +32,28 @@ async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   }
 }
 
-/** A schedule covering every day (or none) is stored as null, meaning "every day". */
-function normalizeDays(days: number[] | null | undefined): number[] | null {
-  if (!days) return null;
-  const uniq = [...new Set(days)].sort((a, b) => a - b);
-  return uniq.length === 0 || uniq.length === 7 ? null : uniq;
-}
-
 function habitRows(userId: string, drafts: z.infer<typeof createProfileSchema>["habits"]) {
   return drafts.map((h, i) => ({
-    id: crypto.randomUUID(),
     userId,
     name: h.name,
     kind: h.kind,
     target: h.kind === "count" ? h.target : 1,
     unit: h.kind === "count" ? h.unit || "per day" : null,
     position: i,
-    icon: h.icon || null,
-    days: normalizeDays(h.days),
   }));
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function deleteTrackerData(tx: Tx, userId: string) {
+  await tx.delete(dayLog).where(eq(dayLog.userId, userId));
+  await tx.delete(relapse).where(eq(relapse.userId, userId));
+  await tx.delete(habit).where(eq(habit.userId, userId));
+  await tx.delete(profile).where(eq(profile.userId, userId));
 }
 
 function assertNotFuture(iso: string, what: string) {
   if (new Date(iso).getTime() > Date.now() + 60_000) throw new UserError(`${what} can't be in the future.`);
-}
-
-/** Day keys are in the user's time zone, which can be up to 14 hours ahead of UTC. */
-function assertDayNotFuture(dateKey: string) {
-  if (new Date(`${dateKey}T00:00:00Z`).getTime() > Date.now() + 15 * 3_600_000) {
-    throw new UserError("You can't check in for a day that hasn't happened yet.");
-  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -81,7 +72,6 @@ export async function createProfile(input: unknown): Promise<ActionResult> {
         startAt: new Date(data.startAt),
         goalDays: data.goalDays,
         reasons: data.reasons,
-        preferences: normalizePreferences(undefined),
       });
       if (rows.length) await tx.insert(habit).values(rows);
     });
@@ -93,7 +83,6 @@ export async function saveDay(input: unknown): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
     const d = dayLogSchema.parse(input);
-    assertDayNotFuture(d.date);
     const values = {
       mood: d.mood,
       energy: d.energy,
@@ -105,7 +94,7 @@ export async function saveDay(input: unknown): Promise<ActionResult> {
     await db
       .insert(dayLog)
       .values({ userId, date: d.date, ...values })
-      .onDuplicateKeyUpdate({ set: { ...values, updatedAt: new Date() } });
+      .onConflictDoUpdate({ target: [dayLog.userId, dayLog.date], set: { ...values, updatedAt: new Date() } });
     return null;
   });
 }
@@ -117,12 +106,10 @@ export async function logRelapse(input: unknown): Promise<ActionResult<Relapse>>
     assertNotFuture(r.at, "A reset");
     const [p] = await db.select({ startAt: profile.startAt }).from(profile).where(eq(profile.userId, userId)).limit(1);
     if (!p) throw new UserError("Set up your tracker first.");
-    const at = new Date(r.at);
-    if (at < p.startAt) throw new UserError("That's before your program started.");
-    // MySQL has no INSERT ... RETURNING, so the id is created here.
-    const row = { id: crypto.randomUUID(), userId, at, trigger: r.trigger, note: r.note?.trim() || null };
-    await db.insert(relapse).values(row);
-    return { id: row.id, at: at.toISOString(), trigger: row.trigger, note: row.note };
+    if (new Date(r.at) < p.startAt) throw new UserError("That's before your program started.");
+    const row = { id: crypto.randomUUID(), at: new Date(r.at), trigger: r.trigger, note: r.note?.trim() || null };
+    await db.insert(relapse).values({ userId, ...row });
+    return { ...row, at: row.at.toISOString() };
   });
 }
 
@@ -141,9 +128,6 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
     const data = saveSettingsSchema.parse(input);
     assertNotFuture(data.startAt, "The start");
 
-    const [p] = await db.select({ createdAt: profile.createdAt }).from(profile).where(eq(profile.userId, userId)).limit(1);
-    if (!p) throw new UserError("Set up your tracker first.");
-
     const [first] = await db
       .select({ at: relapse.at })
       .from(relapse)
@@ -154,6 +138,14 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
       throw new UserError("The start must be before your first logged reset.");
     }
 
+    const existing = await db
+      .select({ id: habit.id })
+      .from(habit)
+      .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)));
+    const existingIds = new Set(existing.map((e) => e.id));
+    const keptIds = new Set<string>();
+
+    const rows = habitRows(userId, data.habits);
     await db.transaction(async (tx) => {
       await tx
         .update(profile)
@@ -162,18 +154,9 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
           startAt: new Date(data.startAt),
           goalDays: data.goalDays,
           reasons: data.reasons,
-          preferences: normalizePreferences(data.preferences),
         })
         .where(eq(profile.userId, userId));
 
-      const existing = await tx
-        .select({ id: habit.id })
-        .from(habit)
-        .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)));
-      const existingIds = new Set(existing.map((e) => e.id));
-      const keptIds = new Set<string>();
-
-      const rows = habitRows(userId, data.habits);
       const inserts: typeof rows = [];
       for (const [i, h] of data.habits.entries()) {
         const row = rows[i];
@@ -181,20 +164,19 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
           keptIds.add(h.id);
           await tx
             .update(habit)
-            .set({ name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position, icon: row.icon, days: row.days })
+            .set({ name: row.name, kind: row.kind, target: row.target, unit: row.unit, position: row.position })
             .where(and(eq(habit.id, h.id), eq(habit.userId, userId)));
         } else {
           inserts.push(row);
         }
       }
       if (inserts.length) await tx.insert(habit).values(inserts);
-      for (const hid of existingIds) {
-        if (!keptIds.has(hid)) {
-          await tx
-            .update(habit)
-            .set({ archivedAt: new Date() })
-            .where(and(eq(habit.id, hid), eq(habit.userId, userId)));
-        }
+      const removed = [...existingIds].filter((id) => !keptIds.has(id));
+      if (removed.length) {
+        await tx
+          .update(habit)
+          .set({ archivedAt: new Date() })
+          .where(and(eq(habit.userId, userId), inArray(habit.id, removed)));
       }
     });
 
@@ -203,19 +185,14 @@ export async function saveSettings(input: unknown): Promise<ActionResult<Habit[]
       .from(habit)
       .where(and(eq(habit.userId, userId), isNull(habit.archivedAt)))
       .orderBy(asc(habit.position), asc(habit.createdAt));
-    return active.map((h) => toHabit(h, p.createdAt));
+    return active.map(toHabit);
   });
 }
 
 export async function eraseAll(): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
-    await db.transaction(async (tx) => {
-      await tx.delete(dayLog).where(eq(dayLog.userId, userId));
-      await tx.delete(relapse).where(eq(relapse.userId, userId));
-      await tx.delete(habit).where(eq(habit.userId, userId));
-      await tx.delete(profile).where(eq(profile.userId, userId));
-    });
+    await db.transaction((tx) => deleteTrackerData(tx, userId));
     return null;
   });
 }
@@ -230,18 +207,9 @@ const clampScale = (v: unknown) => {
 const isDateKey = (k: string) => /^\d{4}-\d{2}-\d{2}$/.test(k);
 const validIso = (s: string) => !Number.isNaN(new Date(s).getTime());
 
-/** Parses a backup, turning schema errors into a message that says where the file is broken. */
-function parseBackup<T>(schema: z.ZodType<T>, raw: unknown): T {
-  const r = schema.safeParse(raw);
-  if (r.success) return r.data;
-  const where = r.error.issues[0]?.path.join(".");
-  throw new UserError(`That backup file couldn't be read${where ? ` (problem at "${where}")` : ""}. Make sure it's the file you exported, unchanged.`);
-}
-
-export async function importBackup(input: unknown): Promise<ActionResult> {
+export async function importBackup(json: string): Promise<ActionResult> {
   return run(async () => {
     const userId = await requireUserId();
-    const json = z.string().max(8_000_000, "That file is too big to be a Reclaim 180 backup.").parse(input);
     let raw: unknown;
     try {
       raw = JSON.parse(json);
@@ -251,16 +219,8 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
     const version = (raw as { version?: unknown })?.version;
 
     type Norm = {
-      profile: { displayName: string; startAt: Date; goalDays: number; reasons: string[]; preferences: Record<string, unknown> };
-      habits: {
-        oldId: string;
-        name: string;
-        kind: "check" | "count";
-        target: number;
-        unit: string | null;
-        icon: string | null;
-        days: number[] | null;
-      }[];
+      profile: { displayName: string; startAt: Date; goalDays: number; reasons: string[] };
+      habits: { oldId: string; name: string; kind: "check" | "count"; target: number; unit: string | null }[];
       logs: {
         date: string;
         mood: number | null;
@@ -275,7 +235,7 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
     let n: Norm;
 
     if (version === 1) {
-      const b = parseBackup(legacyBackupSchema, raw);
+      const b = legacyBackupSchema.parse(raw);
       if (!validIso(b.profile.startAt)) throw new UserError("The backup's start date isn't valid.");
       n = {
         profile: {
@@ -283,7 +243,6 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
           startAt: new Date(b.profile.startAt),
           goalDays: Math.max(7, Math.min(1000, Math.round(b.profile.goal ?? 182))),
           reasons: (b.profile.reasons ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 12),
-          preferences: normalizePreferences(undefined),
         },
         habits: b.profile.habits.slice(0, 20).map((h) => ({
           oldId: h.id,
@@ -291,8 +250,6 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
           kind: h.type,
           target: h.type === "count" ? Math.max(1, Math.min(99, Math.round(h.target ?? 1))) : 1,
           unit: h.type === "count" ? (h.unit ?? "per day").slice(0, 20) : null,
-          icon: null,
-          days: null,
         })),
         logs: Object.values(b.months).flatMap((m) =>
           Object.entries(m.days)
@@ -314,34 +271,16 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
           .map((r) => ({ at: new Date(r.at), trigger: r.trigger?.slice(0, 40) ?? null, note: r.note?.slice(0, 1000) ?? null })),
       };
     } else if (version === 2) {
-      const b = parseBackup(appBackupSchema, raw);
+      const b = appBackupSchema.parse(raw);
       n = {
-        profile: {
-          displayName: b.profile.displayName,
-          startAt: new Date(b.profile.startAt),
-          goalDays: b.profile.goalDays,
-          reasons: b.profile.reasons,
-          preferences: normalizePreferences(b.profile.preferences),
-        },
-        habits: b.habits.map((h) => ({
-          oldId: h.id,
-          name: h.name,
-          kind: h.kind,
-          target: h.target,
-          unit: h.unit,
-          icon: h.icon ?? null,
-          days: normalizeDays(h.days),
-        })),
+        profile: { ...b.profile, startAt: new Date(b.profile.startAt) },
+        habits: b.habits.map((h) => ({ oldId: h.id, name: h.name, kind: h.kind, target: h.target, unit: h.unit })),
         logs: b.logs,
         relapses: b.relapses.map((r) => ({ at: new Date(r.at), trigger: r.trigger, note: r.note })),
       };
     } else {
       throw new UserError("That file isn't a Reclaim 180 backup.");
     }
-
-    // A hand-edited or merged file can repeat a habit or a day. Keep the first habit and the last day.
-    n.habits = n.habits.filter((h, i, all) => all.findIndex((x) => x.oldId === h.oldId) === i);
-    n.logs = [...new Map(n.logs.map((l) => [l.date, l])).values()];
 
     // New ids for habits; remap each day's values to them.
     const idMap = new Map(n.habits.map((h) => [h.oldId, crypto.randomUUID()]));
@@ -353,8 +292,6 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
       target: h.target,
       unit: h.unit,
       position: i,
-      icon: h.icon,
-      days: h.days,
     }));
     const logValues = n.logs.map((l) => ({
       userId,
@@ -366,18 +303,12 @@ export async function importBackup(input: unknown): Promise<ActionResult> {
       ),
     }));
 
-    // All or nothing: a failed import leaves the old data untouched.
     await db.transaction(async (tx) => {
-      await tx.delete(dayLog).where(eq(dayLog.userId, userId));
-      await tx.delete(relapse).where(eq(relapse.userId, userId));
-      await tx.delete(habit).where(eq(habit.userId, userId));
-      await tx.delete(profile).where(eq(profile.userId, userId));
+      await deleteTrackerData(tx, userId);
       await tx.insert(profile).values({ userId, ...n.profile });
       if (habitValues.length) await tx.insert(habit).values(habitValues);
       for (let i = 0; i < logValues.length; i += 300) await tx.insert(dayLog).values(logValues.slice(i, i + 300));
-      if (n.relapses.length) {
-        await tx.insert(relapse).values(n.relapses.map((r) => ({ id: crypto.randomUUID(), userId, ...r })));
-      }
+      if (n.relapses.length) await tx.insert(relapse).values(n.relapses.map((r) => ({ userId, ...r })));
     });
     return null;
   });
