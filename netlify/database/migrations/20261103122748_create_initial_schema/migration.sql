@@ -27,6 +27,13 @@ CREATE TABLE "day_log" (
 	CONSTRAINT "day_log_pkey" PRIMARY KEY("user_id","date")
 );
 --> statement-breakpoint
+CREATE TABLE "rate_limit" (
+	"id" text PRIMARY KEY,
+	"key" text NOT NULL UNIQUE,
+	"count" integer NOT NULL,
+	"last_request" bigint NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "habit" (
 	"id" text PRIMARY KEY,
 	"user_id" text NOT NULL,
@@ -35,6 +42,8 @@ CREATE TABLE "habit" (
 	"target" integer DEFAULT 1 NOT NULL,
 	"unit" varchar(50),
 	"position" integer DEFAULT 0 NOT NULL,
+	"icon" varchar(24),
+	"days" jsonb,
 	"archived_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -45,6 +54,7 @@ CREATE TABLE "profile" (
 	"start_at" timestamp with time zone NOT NULL,
 	"goal_days" integer DEFAULT 182 NOT NULL,
 	"reasons" jsonb DEFAULT '[]' NOT NULL,
+	"preferences" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
